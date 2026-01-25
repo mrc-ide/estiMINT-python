@@ -36,3 +36,7 @@ Thumbs.db
 
 # uv
 uv.lock
+
+# Training outputs
+output/
+scripts/output/
