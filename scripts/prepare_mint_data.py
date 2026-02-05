@@ -3,7 +3,7 @@ Extract training data from MINTelligence DuckDB for estiMINT retraining.
 
 This script:
 1. Reads malaria_simulations_4096.duckdb
-2. Extracts year 9 prevalence (timestep ~3285) for each parameter set
+2. Extracts year 9 annual mean prevalence (avg over days 2920-3284) for each parameter set
 3. Filters prevalence >= 0.02 (per user policy)
 4. Saves as parquet for estiMINT training
 """
@@ -16,8 +16,8 @@ from pathlib import Path
 DUCKDB_PATH = "/home/cosmo/Documents/Repos/MINT_DATA/malaria_simulations_4096.duckdb"
 OUTPUT_DIR = Path("/home/cosmo/Documents/Repos/estimint/output/mint_data")
 INTERVENTION_DAY = 3285  # Day 3285 = 9 years
+YEAR9_START = INTERVENTION_DAY - 365  # Day 2920 = start of year 9
 MIN_PREVALENCE = 0.02  # User policy: never allow prevalence < 2%
-WINDOW = 30  # Days around intervention to consider
 
 def extract_year9_data():
     """Extract year 9 data from all simulations."""
@@ -32,46 +32,25 @@ def extract_year9_data():
     """).fetchone()
     print(f"Database contains: {total_rows:,} rows, {total_params:,} parameter sets")
 
-    # Extract year 9 data for all parameter sets
-    # We want the closest timestep to INTERVENTION_DAY for each parameter+simulation
-    print(f"\nExtracting data near timestep {INTERVENTION_DAY} (year 9)...")
+    # Extract year 9 annual mean prevalence for all parameter sets
+    # Average over the full year before intervention (days 2920-3284)
+    print(f"\nExtracting annual mean prevalence for year 9 (days {YEAR9_START}-{INTERVENTION_DAY - 1})...")
 
     query = f"""
-    WITH ranked AS (
-        SELECT
-            parameter_index,
-            simulation_index,
-            eir,
-            dn0_use,
-            Q0,
-            phi_bednets,
-            seasonal,
-            itn_use,
-            irs_use,
-            prevalence,
-            timesteps,
-            ABS(timesteps - {INTERVENTION_DAY}) as time_diff,
-            ROW_NUMBER() OVER (
-                PARTITION BY parameter_index, simulation_index
-                ORDER BY ABS(timesteps - {INTERVENTION_DAY})
-            ) as rn
-        FROM simulation_results
-        WHERE timesteps BETWEEN {INTERVENTION_DAY - WINDOW} AND {INTERVENTION_DAY + WINDOW}
-    )
     SELECT
         parameter_index,
         simulation_index,
-        eir,
-        dn0_use,
-        Q0,
-        phi_bednets,
-        seasonal,
-        itn_use,
-        irs_use,
-        prevalence as prev_y9,
-        timesteps
-    FROM ranked
-    WHERE rn = 1
+        MAX(eir) AS eir,
+        MAX(dn0_use) AS dn0_use,
+        MAX(Q0) AS Q0,
+        MAX(phi_bednets) AS phi_bednets,
+        MAX(seasonal) AS seasonal,
+        MAX(itn_use) AS itn_use,
+        MAX(irs_use) AS irs_use,
+        AVG(prevalence) AS prev_y9
+    FROM simulation_results
+    WHERE timesteps >= {YEAR9_START} AND timesteps < {INTERVENTION_DAY}
+    GROUP BY parameter_index, simulation_index
     """
 
     print("Running extraction query...")
@@ -94,22 +73,21 @@ def extract_year9_data():
     print(f"IRS range: [{df_filtered['irs_use'].min():.4f}, {df_filtered['irs_use'].max():.4f}]")
     print(f"Seasonal: {df_filtered['seasonal'].value_counts().to_dict()}")
 
-    # Save as parquet (try) or CSV (fallback)
+    # Save as both CSV (for train_on_mint_data.py) and parquet
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT_DIR / "mint_training_data.parquet"
 
-    print(f"\nSaving to {output_path}...")
+    csv_path = OUTPUT_DIR / "mint_training_data.csv"
+    df_filtered.to_csv(csv_path, index=False)
+    print(f"\nCSV saved to {csv_path}")
+
     try:
-        df_filtered.to_parquet(output_path, index=False)
-        print(f"✓ Done! Training data saved to {output_path}")
-        print(f"  Size: {output_path.stat().st_size / 1024 / 1024:.2f} MB")
+        parquet_path = OUTPUT_DIR / "mint_training_data.parquet"
+        df_filtered.to_parquet(parquet_path, index=False)
+        print(f"Parquet saved to {parquet_path}")
     except ImportError:
-        # Fallback to CSV if pyarrow not available
-        output_path = OUTPUT_DIR / "mint_training_data.csv"
-        print(f"Parquet not available, saving as CSV to {output_path}...")
-        df_filtered.to_csv(output_path, index=False)
-        print(f"✓ Done! Training data saved to {output_path}")
-        print(f"  Size: {output_path.stat().st_size / 1024 / 1024:.2f} MB")
+        pass
+
+    output_path = csv_path
 
     return output_path
 

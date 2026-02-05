@@ -15,7 +15,7 @@ Dependencies (equivalent to R imports):
 - scikit-learn (stats::kmeans)
 """
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __package_name__ = "estiMINT"
 
 # Public API exports
