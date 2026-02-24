@@ -69,17 +69,23 @@ def main():
     DT["eir_log10"] = np.log10(DT["eir"])
 
     # XGBoost parameters
+    # Monotone constraint: prev_y9 (index 6) must be positively correlated with EIR
+    # Higher prevalence → more infected humans → more transmission → higher EIR
+    # Features: ["dn0_use", "Q0", "phi_bednets", "seasonal", "itn_use", "irs_use", "prev_y9"]
+    #             0         0       0              0           0          0          +1
     xgb_params = {
         "objective": "reg:squarederror",
         "eval_metric": "rmse",
         "tree_method": "hist",
-        "max_depth": 6,
-        "eta": 0.05,
+        "max_bin": 4096,
+        "max_depth": 8,
+        "eta": 0.02,
         "subsample": 0.8,
         "colsample_bytree": 0.8,
         "min_child_weight": 1.0,
         "lambda": 1.0,
         "seed": SEED,
+        "monotone_constraints": "(0,0,0,0,0,0,1)",
     }
 
     # Create strata using k-means on log10(EIR)
@@ -169,9 +175,9 @@ def main():
         mdl = xgb.train(
             params=xgb_params,
             dtrain=dtr,
-            num_boost_round=5000,
+            num_boost_round=15000,
             evals=[(dtr, "train"), (dva, "val")],
-            early_stopping_rounds=100,
+            early_stopping_rounds=200,
             verbose_eval=False,
         )
 

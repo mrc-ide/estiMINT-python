@@ -274,25 +274,51 @@ def _ensure_models(tag: Optional[str] = None) -> Path:
     return root
 
 
-def _find_installed_model() -> Optional[str]:
+_BUNDLED_MODELS = {
+    "prevalence": "estiMINT_model.pkl",
+    "hbr": "estiMINT_HBR_model.pkl",
+    "eir_to_hbr": "estiMINT_EIR_to_HBR_model.pkl",
+}
+
+
+def _find_installed_model(name: Optional[str] = None) -> Optional[str]:
     """
     Find model files installed with package.
-    
+
+    Parameters
+    ----------
+    name : str, optional
+        Model name: "prevalence" (default), "hbr", or "eir_to_hbr".
+        If None, returns the default prevalence model.
+
     Returns
     -------
     str or None
         Path to model directory if found, None otherwise
     """
     data_dir = _get_package_data_dir()
-    
-    # Check for JSON format (exported from R)
+
+    # Named model lookup
+    if name is not None:
+        filename = _BUNDLED_MODELS.get(name)
+        if filename is None:
+            raise ValueError(
+                f"Unknown model name '{name}'. "
+                f"Available: {', '.join(sorted(_BUNDLED_MODELS))}"
+            )
+        path = data_dir / filename
+        if path.exists():
+            return str(path)
+        return None
+
+    # Default: check for JSON format (exported from R)
     if (data_dir / "estiMINT_booster.json").exists():
         return str(data_dir)
-    
+
     # Check for pickle format
     if (data_dir / "estiMINT_model.pkl").exists():
         return str(data_dir / "estiMINT_model.pkl")
-    
+
     return None
 
 
@@ -590,45 +616,66 @@ def save_xgb_model(
 def load_xgb_model(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """
     Load model onto memory for usage.
-    
+
     Equivalent to R's load_xgb_model() function.
-    
+
     Parameters
     ----------
     path : str or Path, optional
         Path to model directory (containing JSON files) or .pkl file.
+        Can also be a model name: "prevalence" (default), "hbr", or
+        "eir_to_hbr" to load bundled models by name.
         If None, tries (in order): ESTIMINT_MODELS_DIR env var,
         package data directory, then download using models-tag.txt.
-        
+
     Returns
     -------
     dict
         An 'estiMINT_model' object (dictionary with model components)
-        
+
     Raises
     ------
     FileNotFoundError
         If model file cannot be found
+
+    Examples
+    --------
+    >>> prev_model = load_xgb_model()            # default prevalence model
+    >>> prev_model = load_xgb_model("prevalence") # same as above
+    >>> hbr_model = load_xgb_model("hbr")         # HBR -> EIR model
+    >>> e2h_model = load_xgb_model("eir_to_hbr")  # EIR -> HBR model
     """
+    # 0) Check for named model shortcut
+    if isinstance(path, str) and path in _BUNDLED_MODELS:
+        inst = _find_installed_model(name=path)
+        if inst is not None:
+            with open(inst, "rb") as f:
+                return pickle.load(f)
+        raise FileNotFoundError(
+            f"Bundled model '{path}' not found. "
+            f"Expected at: {_get_package_data_dir() / _BUNDLED_MODELS[path]}"
+        )
+
     # 1) Explicit path
     if path is not None:
         path = Path(path)
         resolved = Path(_resolve_model_file(path))
-        
+
         # Check if it's a directory with JSON files
         if resolved.is_dir() and (resolved / "estiMINT_booster.json").exists():
             return _load_from_json_dir(resolved)
-        
+
         # Otherwise assume pickle
         if resolved.is_file() and resolved.suffix == ".pkl":
             with open(resolved, "rb") as f:
                 obj = pickle.load(f)
-            if not isinstance(obj, dict) or obj.get("class") != "estiMINT_model":
+            valid_classes = {"estiMINT_model", "estiMINT_HBR_model", "estiMINT_EIR_to_HBR_model"}
+            if not isinstance(obj, dict) or obj.get("class") not in valid_classes:
                 warnings.warn("Loaded object does not appear to be an 'estiMINT_model'")
             return obj
-        
+
         raise FileNotFoundError(f"Could not load model from: {path}")
-    
+
     # 2) Check environment variable override
     override = os.environ.get("ESTIMINT_MODELS_DIR", "")
     if override:
@@ -638,7 +685,7 @@ def load_xgb_model(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
         if resolved.is_file():
             with open(resolved, "rb") as f:
                 return pickle.load(f)
-    
+
     # 3) Check for installed model in package data/
     inst = _find_installed_model()
     if inst is not None:
@@ -648,22 +695,23 @@ def load_xgb_model(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
         if inst_path.is_file():
             with open(inst_path, "rb") as f:
                 return pickle.load(f)
-    
+
     # 4) Download from GitHub releases
     tag = _models_tag()
     root = _model_root(tag)
-    
+
     if not (root / ".ok").exists():
         _ensure_models(tag)
-    
+
     resolved = Path(_resolve_model_file(root))
     if resolved.is_dir() and (resolved / "estiMINT_booster.json").exists():
         return _load_from_json_dir(resolved)
-    
+
     with open(resolved, "rb") as f:
         obj = pickle.load(f)
-    
-    if not isinstance(obj, dict) or obj.get("class") != "estiMINT_model":
+
+    valid_classes = {"estiMINT_model", "estiMINT_HBR_model", "estiMINT_EIR_to_HBR_model"}
+    if not isinstance(obj, dict) or obj.get("class") not in valid_classes:
         warnings.warn("Loaded object does not appear to be an 'estiMINT_model'")
-    
+
     return obj

@@ -15,7 +15,7 @@ Dependencies (equivalent to R imports):
 - scikit-learn (stats::kmeans)
 """
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 __package_name__ = "estiMINT"
 
 # Public API exports
@@ -55,6 +55,8 @@ from .storage import (
 
 from .run import run_xgb_model
 
+from .hbr import estimate_eir_with_mosquito_increase
+
 __all__ = [
     # utils
     "ts",
@@ -86,4 +88,6 @@ __all__ = [
     "bundle_model",
     # run
     "run_xgb_model",
+    # hbr
+    "estimate_eir_with_mosquito_increase",
 ]

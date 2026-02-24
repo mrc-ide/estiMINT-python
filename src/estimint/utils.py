@@ -300,30 +300,60 @@ def fit_qmap_w(
     q = np.linspace(0, 1, ngrid)
     xq = np.interp(q, F1, x1)
     yq = np.interp(q, F2, y2)
-    
+
+    # Enforce strict monotonicity to prevent flat spots in the mapping
+    rel_eps = 1e-10
+    for i in range(1, len(xq)):
+        if xq[i] <= xq[i - 1]:
+            xq[i] = xq[i - 1] + rel_eps * max(1.0, abs(xq[i - 1]))
+    for i in range(1, len(yq)):
+        if yq[i] <= yq[i - 1]:
+            yq[i] = yq[i - 1] + rel_eps * max(1.0, abs(yq[i - 1]))
+
     return {"kind": "qmap", "xq": xq, "yq": yq}
 
 
 def predict_qmap_w(newx_raw: ArrayLike, cal: Dict[str, Any]) -> np.ndarray:
     """
     Apply quantile mapping calibration to new predictions.
-    
+
     Equivalent to R's predict_qmap_w() function.
-    
+
     Parameters
     ----------
     newx_raw : array-like
         New raw predictions to calibrate
     cal : dict
         Calibration object from fit_qmap_w()
-        
+
     Returns
     -------
     np.ndarray
         Calibrated predictions
     """
-    newx_raw = np.asarray(newx_raw)
-    return np.interp(newx_raw, cal["xq"], cal["yq"])
+    newx_raw = np.asarray(newx_raw, dtype=np.float64)
+    xq = np.array(cal["xq"], dtype=np.float64)
+    yq = np.array(cal["yq"], dtype=np.float64)
+
+    # np.interp clamps out-of-range values to the boundary, which destroys
+    # ordering for predictions below xq[0] or above xq[-1].  Instead,
+    # linearly extrapolate using the slope of the first/last grid segment
+    # so that distinct raw predictions always yield distinct calibrated values.
+    result = np.interp(newx_raw, xq, yq)
+
+    # Left extrapolation: values below xq[0]
+    below = newx_raw < xq[0]
+    if np.any(below):
+        slope_left = (yq[1] - yq[0]) / (xq[1] - xq[0]) if xq[1] != xq[0] else 0.0
+        result[below] = yq[0] + slope_left * (newx_raw[below] - xq[0])
+
+    # Right extrapolation: values above xq[-1]
+    above = newx_raw > xq[-1]
+    if np.any(above):
+        slope_right = (yq[-1] - yq[-2]) / (xq[-1] - xq[-2]) if xq[-1] != xq[-2] else 0.0
+        result[above] = yq[-1] + slope_right * (newx_raw[above] - xq[-1])
+
+    return result
 
 
 def scale_pos(obs: ArrayLike, pred: ArrayLike) -> float:
