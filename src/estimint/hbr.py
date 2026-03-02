@@ -1,12 +1,12 @@
 """
 Human Biting Rate (HBR) pipeline for estiMINT.
 
-Answers the question: "What happens to EIR if mosquito density increases by X%?"
+Answers the question: "What happens to EIR if mosquito density changes by X%?"
 
 Pipeline:
 1. prev_y9 + interventions -> EIR_baseline       (prevalence model)
 2. EIR_baseline + interventions -> HBR_baseline   (EIR-to-HBR model)
-3. HBR_new = HBR_baseline * (1 + increase_pct)   (user's mosquito increase)
+3. HBR_new = HBR_baseline * (1 + mosquito_delta)  (user's mosquito change, pos or neg)
 4. HBR model predicts EIR at both HBR values      (ratio approach)
 5. EIR_new = EIR_baseline * (EIR_scaled / EIR_roundtrip)
 """
@@ -31,9 +31,9 @@ def _get_model(name: str) -> Dict[str, Any]:
     return _models[name]
 
 
-def estimate_eir_with_mosquito_increase(
+def estimate_eir_with_mosquito_delta(
     prevalence: float,
-    mosquito_increase: float,
+    mosquito_delta: float,
     dn0_use: float,
     Q0: float,
     phi_bednets: float,
@@ -45,7 +45,7 @@ def estimate_eir_with_mosquito_increase(
     eir_to_hbr_model: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, float]:
     """
-    Estimate the new EIR after a mosquito density increase.
+    Estimate the new EIR after a change in mosquito density.
 
     Uses a ratio approach: the HBR model predicts EIR at both the baseline
     and scaled HBR, then applies the relative multiplier to the clean
@@ -55,8 +55,9 @@ def estimate_eir_with_mosquito_increase(
     ----------
     prevalence : float
         Baseline malaria prevalence (prev_y9), e.g. 0.30 for 30%.
-    mosquito_increase : float
-        Fractional increase in mosquito density, e.g. 0.10 for +10%.
+    mosquito_delta : float
+        Fractional change in mosquito density, e.g. 0.10 for +10%, -0.50 for -50%.
+        Must be > -1 (cannot eliminate more mosquitoes than exist).
     dn0_use : float
         Bednet contact reduction parameter.
     Q0 : float
@@ -81,16 +82,16 @@ def estimate_eir_with_mosquito_increase(
     dict
         Dictionary with keys:
         - eir_baseline: Baseline EIR from prevalence
-        - eir_new: New EIR after mosquito increase
+        - eir_new: New EIR after mosquito density change
         - eir_multiplier: Ratio of new EIR to baseline
         - hbr_baseline: Estimated baseline HBR
-        - hbr_new: HBR after mosquito increase
+        - hbr_new: HBR after mosquito density change
 
     Examples
     --------
-    >>> from estimint import estimate_eir_with_mosquito_increase
-    >>> result = estimate_eir_with_mosquito_increase(
-    ...     prevalence=0.30, mosquito_increase=0.25,
+    >>> from estimint import estimate_eir_with_mosquito_delta
+    >>> result = estimate_eir_with_mosquito_delta(
+    ...     prevalence=0.30, mosquito_delta=0.25,
     ...     dn0_use=0.33, Q0=0.87, phi_bednets=0.82,
     ...     seasonal=0.0, itn_use=0.6, irs_use=0.0,
     ... )
@@ -116,7 +117,7 @@ def estimate_eir_with_mosquito_increase(
     X_prev = pd.DataFrame({"prev_y9": [prevalence], **intv})
     eir_baseline = float(run_xgb_model(X_prev, prev_model)[0])
 
-    if mosquito_increase == 0:
+    if mosquito_delta == 0:
         return {
             "eir_baseline": eir_baseline,
             "eir_new": eir_baseline,
@@ -129,8 +130,8 @@ def estimate_eir_with_mosquito_increase(
     X_eir = pd.DataFrame({"eir": [eir_baseline], **intv})
     hbr_baseline = float(run_xgb_model(X_eir, eir_to_hbr_model)[0])
 
-    # Step 3: apply mosquito increase
-    hbr_new = hbr_baseline * (1 + mosquito_increase)
+    # Step 3: apply mosquito delta (positive or negative)
+    hbr_new = hbr_baseline * (1 + mosquito_delta)
 
     # Step 4: ratio approach — batch both HBR values in one call so they
     # share the same smooth PCHIP curve
