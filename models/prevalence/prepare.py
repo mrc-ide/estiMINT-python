@@ -3,11 +3,13 @@
 Filters prev_y9 >= 0.02 and sorts by key for a deterministic, reproducible view.
 """
 
+from pathlib import Path
+
 import pandas as pd
 
-ROOT = "/home/cosmo/Documents/Repos/estimint"
-SOURCE = f"{ROOT}/datasets/estimint_simulations_y9.parquet"
-OUT = f"{ROOT}/models/prevalence/training.parquet"
+ROOT = Path(__file__).parents[2]
+SOURCE = ROOT / "datasets" / "estimint_simulations_y9.parquet"
+OUT = Path(__file__).parent / "training.parquet"
 
 KEYS = ["parameter_index", "simulation_index"]
 COLS = KEYS + ["eir", "dn0_use", "Q0", "phi_bednets", "seasonal", "itn_use", "irs_use", "prev_y9"]

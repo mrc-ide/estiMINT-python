@@ -1,11 +1,4 @@
-"""Bednet -> dn0 estimator.
-
-`dn0` is the probability a mosquito dies on contact with a treated net — estiMINT's
-bednet covariate. A bednet is specified as a usage mix over net types at an
-insecticide-resistance level; this maps that spec to the usage-weighted dn0.
-
-Backed by the empirical resistance->dn0 table in data/itn_dn0.csv.
-"""
+"""Map a bednet spec (net-type usage mix + resistance level) to dn0, via data/itn_dn0.csv."""
 
 from __future__ import annotations
 
@@ -30,8 +23,8 @@ _NET_TYPES.update({v: v for v in _NET_TYPES.values()})
 
 
 class DN0Result(NamedTuple):
-    dn0: float       # usage-weighted kill probability
-    itn_use: float   # total pyrethroid-net usage
+    dn0: float
+    itn_use: float
 
 
 @lru_cache(maxsize=1)
@@ -50,11 +43,9 @@ def net_types() -> list[str]:
 
 
 def calculate_dn0(resistance_level: float, **usage: float) -> DN0Result:
-    """Usage-weighted dn0 for a bednet mix at a given resistance level.
+    """Usage-weighted dn0 for a net-type mix at a resistance level.
 
-    Pass net-type shares as keywords (short or canonical names), e.g.
-    ``calculate_dn0(0.5, py_only=0.4, py_pbo=0.6)``. Returns the weighted dn0 and
-    the total ITN usage. A mix summing to 0 returns (0, 0).
+    Net-type shares are keywords, e.g. ``calculate_dn0(0.5, py_only=0.4, py_pbo=0.6)``.
     """
     if not usage:
         raise ValueError("supply at least one <net_type>=<share> pair")
