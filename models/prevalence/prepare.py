@@ -1,4 +1,4 @@
-"""Derive the prevalence->EIR training view from the consolidated source.
+"""Derive the prevalence->EIR training view from datasets/estimint_simulations_y9.parquet.
 
 Filters prev_y9 >= 0.02 and sorts by key for a deterministic, reproducible view.
 """

@@ -1,4 +1,4 @@
-"""Derive the two HBR training views from the consolidated source.
+"""Derive the two HBR training views from datasets/estimint_simulations_y9.parquet.
 
 - hbr_training: HBR->EIR model       (hbr_y9 > 0)
 - eir_to_hbr_training: EIR->HBR model (prev_y9 >= 0.02 AND hbr_y9 > 0)

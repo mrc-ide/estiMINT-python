@@ -32,14 +32,12 @@ pip install -r requirements.txt
 
 ## Data & retraining pipeline
 
-All training data lives in a single source, `datasets/estimint_simulations_y9.parquet`, built
-from the raw simulation DuckDBs by `models/consolidate.py`. Two model folders derive
-their views and train from it:
+All training data lives in `datasets/estimint_simulations_y9.parquet`. Two model folders
+derive their views from it and train:
 
 ```
 datasets/               # training data (see datasets/README.md)
 models/
-  consolidate.py        # raw DuckDBs -> datasets/estimint_simulations_y9.parquet
   prevalence/           # prev_y9 -> EIR     (estiMINT_model.pkl)
   hbr/                  # HBR<->EIR sub-models (estiMINT_HBR_model.pkl, estiMINT_EIR_to_HBR_model.pkl)
 ```
@@ -47,8 +45,7 @@ models/
 Retrain a model end-to-end, e.g. the prevalence model:
 
 ```bash
-python models/consolidate.py     # (re)build the single source from the DuckDBs
-python models/prevalence/prepare.py        # derive the training view
+python models/prevalence/prepare.py        # derive the training view from the parquet
 python models/prevalence/train.py          # train -> estiMINT_model.pkl + metrics/ + plots/
 ```
 
@@ -146,6 +143,16 @@ weights = make_value_weights(df["eir"].values, digits=3)
 df["eir_log10"] = np.log10(df["eir"])
 df = strata_and_split(df, k_strata=16, seed=42)
 ```
+
+## Testing
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Covers the metric/utility helpers plus the three estimator flows: prevalence→EIR
+inference, the mosquito-delta HBR pipeline, and bednet→dn0.
 
 ## Key Differences from R Version
 
