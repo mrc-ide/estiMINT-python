@@ -2,6 +2,8 @@
 
 Python port of the estiMINT R package for EIR (Entomological Inoculation Rate) estimation using machine learning.
 
+Estimators: EIR from prevalence, EIR↔HBR (incl. the effect of mosquito-density changes), and bednet spec (net type + resistance) → `dn0`.
+
 ## Installation
 
 ```bash
