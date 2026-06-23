@@ -1,0 +1,37 @@
+name: publish
+
+# Build and publish to PyPI when a GitHub Release is published.
+# Release flow: bump `version` in pyproject.toml -> tag/create a Release -> this runs.
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: build + publish to PyPI
+    runs-on: ubuntu-latest
+
+    # PyPI Trusted Publishing (OIDC) — no API token stored as a secret.
+    # One-time setup: add this repo + workflow as a trusted publisher in the
+    # PyPI project settings (https://pypi.org/manage/project/estimint/settings/publishing/).
+    environment:
+      name: pypi
+      url: https://pypi.org/project/estimint/
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      # uv detects the GitHub Actions OIDC token automatically when
+      # id-token: write is granted, so no credentials are needed here.
+      - name: Publish to PyPI
+        run: uv publish

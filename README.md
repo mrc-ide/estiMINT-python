@@ -2,21 +2,44 @@
 
 Python port of the estiMINT R package for EIR (Entomological Inoculation Rate) estimation using machine learning.
 
-Estimators: EIR from prevalence, EIR↔HBR (incl. the effect of mosquito-density changes), and bednet spec (net type + resistance) → `dn0`.
+It estimates EIR from prevalence, converts between EIR and human biting rate (including the effect of changes in mosquito density), and turns a bednet specification (net type and resistance level) into the `dn0` killing parameter.
 
 ## Installation
 
 ```bash
-pip install -e .
+pip install estimint            # core: inference only (numpy, pandas, xgboost, scipy)
 ```
 
-Or install dependencies directly:
+Optional extras, by use case:
 
 ```bash
-pip install -r requirements.txt
+pip install "estimint[train]"   # data prep + model training (duckdb, scikit-learn, pyarrow)
+pip install "estimint[viz]"     # plotting (matplotlib)
+pip install "estimint[all]"     # train + viz + model download
+pip install "estimint[dev]"     # test/lint/type-check toolchain
 ```
 
-## File Mapping (R → Python)
+The `run_scenarios` pipeline also needs the stateMINT emulator (Python 3.12+). For now it
+comes from the `mamba2-train` branch. With uv this is handled for you:
+
+```bash
+uv sync --extra scenarios
+```
+
+With plain pip, install stateMINT from the branch yourself, then estiMINT:
+
+```bash
+pip install "git+https://github.com/mrc-ide/stateMINT.git@mamba2-train"
+pip install estimint
+```
+
+For local development with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --extra all --extra dev
+```
+
+## File mapping (R to Python)
 
 | R File | Python File | Description |
 |--------|-------------|-------------|
@@ -50,7 +73,7 @@ python models/prevalence/train.py          # train -> estiMINT_model.pkl + metri
 ```
 
 The deployed models shipped with the package live in `src/estimint/data/` and are loaded by
-name (`prevalence`, `hbr`, `eir_to_hbr`) — independent of the training pipeline above.
+name (`prevalence`, `hbr`, `eir_to_hbr`). This is independent of the training pipeline above.
 
 ## API Reference
 
@@ -92,10 +115,10 @@ set_global_model(model)
 predictions = run_xgb_model(new_data)  # Uses global model
 ```
 
-### Bednet → dn0
+### Bednet to dn0
 
-Map a bednet spec (net-type usage mix + insecticide resistance) to the `dn0`
-covariate (probability a mosquito dies on contact), plus total ITN usage:
+Turn a bednet specification (a mix of net types and an insecticide resistance level) into
+the `dn0` covariate, the probability a mosquito dies on contact, along with total ITN usage.
 
 ```python
 from estimint import calculate_dn0, net_types
@@ -104,6 +127,53 @@ net_types()                      # ['pyrethroid_only', 'pyrethroid_pbo', 'pyreth
 res = calculate_dn0(0.5, py_only=0.4, py_pbo=0.3, py_pyrrole=0.2, py_ppf=0.1)
 res.dn0, res.itn_use             # weighted dn0, total net usage
 ```
+
+### Run scenarios
+
+`run_scenarios` runs the whole pipeline in one call. You give it a list of scenarios and
+get back a DataFrame. For each scenario it works out the bednet killing effect, estimates
+the EIR (from prevalence, from biting rate, or taken directly), optionally adjusts for a
+change in mosquito density, then runs the stateMINT emulator forward to the prevalence and
+cases trajectories.
+
+This needs the [stateMINT](https://github.com/mrc-ide/stateMINT) package installed as well
+as estiMINT. estiMINT only loads it when you call `run_scenarios`, and the model weights
+download from HuggingFace.
+
+```python
+from estimint import run_scenarios
+
+scenarios = [
+    dict(name="PBO nets, prevalence input, 60% more mosquitoes",
+         input="prevalence", value=0.30,
+         net="pyrethroid_pbo", resistance=0.55, net_usage=0.85,
+         Q0=0.90, phi_bednets=0.85, seasonal=1, irs_use=0.40, lsm=0.0,
+         mosquito_delta=0.60),
+    dict(name="Biting rate input",
+         input="hbr", value=250000.0,
+         net="pyrethroid_ppf", resistance=0.45, net_usage=0.50,
+         Q0=0.80, phi_bednets=0.82, seasonal=0, irs_use=0.0),
+    dict(name="EIR supplied directly, no nets",
+         input="eir", value=20.0,
+         Q0=0.88, phi_bednets=0.78, seasonal=1, irs_use=0.60),
+]
+
+df = run_scenarios(scenarios)
+print(df[["name", "eir_baseline", "eir_final", "prev_y9", "cases_endline"]])
+```
+
+Every scenario needs `input` and `value`, plus `Q0`, `phi_bednets`, `seasonal` and
+`irs_use`. `lsm` defaults to 0. To include nets give `net`, `resistance` and `net_usage`,
+or leave `net` out for none. `mosquito_delta` only applies when `input` is `"prevalence"`.
+
+The returned DataFrame has one row per scenario. Alongside the inputs it gives the
+estimated EIR (`eir_baseline`, and `eir_final` after any mosquito-density change) and the
+stateMINT output. That output is year-9 prevalence (`prev_y9`), endline prevalence and
+cases, and the full 157-step `prev_series` and `cases_series`. What you do with it is up to
+you.
+
+The `estimint.scenarios` module is also where the simulation-based inference and experiment
+code will go.
 
 ## Utility Functions
 
@@ -128,6 +198,9 @@ y_calibrated = predict_qmap_w(y_pred, cal)
 
 ## Data Processing
 
+These functions need the training extras. Install them with `pip install "estimint[train]"`,
+which adds duckdb and scikit-learn.
+
 ```python
 from estimint import load_and_filter, make_value_weights, strata_and_split
 
@@ -147,12 +220,24 @@ df = strata_and_split(df, k_strata=16, seed=42)
 ## Testing
 
 ```bash
-pip install -e ".[dev]"
-pytest
+uv sync --extra dev          # or: pip install -e ".[dev]"
+uv run pytest                # or: pytest
 ```
 
-Covers the metric/utility helpers plus the three estimator flows: prevalence→EIR
-inference, the mosquito-delta HBR pipeline, and bednet→dn0.
+This covers the metric and utility helpers, the EIR estimators (prevalence, HBR and direct
+EIR), the mosquito-density HBR pipeline, and the bednet calculation.
+
+## CI and releases
+
+The test suite runs on every push and pull request across Python 3.9 to 3.12, defined in
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml).
+
+Releases publish to PyPI from [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
+It builds with `uv build` and uploads with `uv publish` using
+[PyPI trusted publishing](https://docs.astral.sh/uv/guides/integration/github/#publishing-to-pypi),
+so no token is stored. To cut a release, bump `version` in `pyproject.toml` and publish a
+GitHub Release. The first time, register this repository as a trusted publisher in the PyPI
+project settings.
 
 ## Key Differences from R Version
 
@@ -163,16 +248,20 @@ inference, the mosquito-delta HBR pipeline, and bednet→dn0.
 
 ## Dependencies
 
+Core, always installed, and enough for inference:
+
 - numpy >= 1.20.0
 - pandas >= 1.3.0
-- duckdb >= 0.8.0
 - xgboost >= 1.6.0
-- scikit-learn >= 1.0.0
 - scipy >= 1.7.0
-- matplotlib >= 3.4.0
-- pyarrow >= 10.0.0 (Parquet I/O for the training pipeline)
-- requests >= 2.28.0 (optional, for model download)
-- appdirs >= 1.4.0 (optional, for cache directory)
+
+Optional extras, installed with `estimint[name]`:
+
+- `train` adds duckdb, scikit-learn and pyarrow for data prep and model training
+- `viz` adds matplotlib for plotting
+- `download` adds requests and appdirs for fetching published models
+- `all` combines train, viz and download
+- `dev` is the test and lint toolchain (pytest, pytest-cov, black, isort, mypy, flake8)
 
 ## License
 

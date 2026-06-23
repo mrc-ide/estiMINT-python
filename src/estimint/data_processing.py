@@ -7,8 +7,8 @@ Equivalent to: data_processing.R
 from typing import Dict, Tuple, Optional
 import numpy as np
 import pandas as pd
-import duckdb
-from sklearn.cluster import KMeans
+
+# duckdb / scikit-learn imported lazily in the functions below (estimint[train]).
 
 
 def load_and_filter(
@@ -37,6 +37,14 @@ def load_and_filter(
         - 'DT': DataFrame with rows passing filters
         - 'DT_excluded': DataFrame with rows failing filters
     """
+    try:
+        import duckdb
+    except ImportError:
+        raise ImportError(
+            "load_and_filter() requires duckdb. "
+            "Install the training extras: pip install estimint[train]"
+        )
+
     con = duckdb.connect(database=":memory:")
     
     try:
@@ -141,9 +149,17 @@ def strata_and_split(
     pd.DataFrame
         DataFrame with added 'strat_bin' and 'split' columns
     """
+    try:
+        from sklearn.cluster import KMeans
+    except ImportError:
+        raise ImportError(
+            "strata_and_split() requires scikit-learn. "
+            "Install the training extras: pip install estimint[train]"
+        )
+
     DT = DT.copy()
     np.random.seed(seed)
-    
+
     # K-means clustering on log10(EIR)
     eir_log10 = DT["eir_log10"].values.reshape(-1, 1)
     km = KMeans(n_clusters=k_strata, n_init=50, max_iter=5000, random_state=seed)

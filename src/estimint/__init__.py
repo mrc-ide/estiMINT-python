@@ -6,13 +6,13 @@ to predict Entomological Inoculation Rate (EIR) from malaria intervention data.
 
 Equivalent to: estiMINT-package.R
 
-Dependencies (equivalent to R imports):
-- pandas, polars (data.table equivalent)
-- duckdb (DBI + duckdb)
-- xgboost (xgboost)
-- numpy (stats)
-- matplotlib, seaborn (ggplot2)
-- scikit-learn (stats::kmeans)
+Dependencies
+------------
+Core (inference): numpy, pandas, xgboost, scipy.
+Optional extras:
+- train: duckdb, scikit-learn, pyarrow  (data prep + model training)
+- viz:   matplotlib                      (plotting)
+- download: requests, appdirs            (fetch published models)
 """
 
 __version__ = "1.4.0"
@@ -59,6 +59,8 @@ from .hbr import estimate_eir_with_mosquito_delta
 
 from .bednet import calculate_dn0, net_types, DN0Result
 
+from .scenarios import run_scenarios
+
 __all__ = [
     # utils
     "ts",
@@ -96,4 +98,6 @@ __all__ = [
     "calculate_dn0",
     "net_types",
     "DN0Result",
+    # scenarios
+    "run_scenarios",
 ]
