@@ -28,26 +28,32 @@ pip install -r requirements.txt
 | `storage.R` | `storage.py` | Model persistence and loading |
 | `run.R` | `run.py` | Model inference |
 
-## API Reference
+## Data & retraining pipeline
 
-### Training
+All training data lives in a single source, `datasets/estimint_simulations_y9.parquet`, built
+from the raw simulation DuckDBs by `models/consolidate.py`. Two model folders derive
+their views and train from it:
 
-```python
-from estimint import train_xgb_model
-
-model = train_xgb_model(
-    in_parquet="data/input.parquet",
-    out_dir="output/",
-    thr_lo=0.02,           # Lower prevalence threshold
-    thr_hi=0.95,           # Upper prevalence threshold
-    k_strata=16,           # K-means strata for EIR
-    K=10,                  # CV folds
-    seed=42,
-    save_pkl=True,
-    save_plots=True,
-    save_artifacts=True
-)
 ```
+datasets/               # training data (see datasets/README.md)
+models/
+  consolidate.py        # raw DuckDBs -> datasets/estimint_simulations_y9.parquet
+  prevalence/           # prev_y9 -> EIR     (estiMINT_model.pkl)
+  hbr/                  # HBR<->EIR sub-models (estiMINT_HBR_model.pkl, estiMINT_EIR_to_HBR_model.pkl)
+```
+
+Retrain a model end-to-end, e.g. the prevalence model:
+
+```bash
+python models/consolidate.py     # (re)build the single source from the DuckDBs
+python models/prevalence/prepare.py        # derive the training view
+python models/prevalence/train.py          # train -> estiMINT_model.pkl + metrics/ + plots/
+```
+
+The deployed models shipped with the package live in `src/estimint/data/` and are loaded by
+name (`prevalence`, `hbr`, `eir_to_hbr`) — independent of the training pipeline above.
+
+## API Reference
 
 ### Inference
 
@@ -55,8 +61,8 @@ model = train_xgb_model(
 from estimint import load_xgb_model, run_xgb_model
 import pandas as pd
 
-# Load model
-model = load_xgb_model("output/models/estiMINT_model.pkl")
+# Load a bundled model by name: "prevalence", "hbr", or "eir_to_hbr"
+model = load_xgb_model("prevalence")
 
 # Prepare input data
 new_data = pd.DataFrame({
@@ -80,11 +86,24 @@ print(f"Predicted EIR: {eir_predictions[0]:.2f}")
 from estimint import load_xgb_model, run_xgb_model, set_global_model
 
 # Set global model once
-model = load_xgb_model("output/models/estiMINT_model.pkl")
+model = load_xgb_model("prevalence")
 set_global_model(model)
 
 # Run predictions without passing model
 predictions = run_xgb_model(new_data)  # Uses global model
+```
+
+### Bednet → dn0
+
+Map a bednet spec (net-type usage mix + insecticide resistance) to the `dn0`
+covariate (probability a mosquito dies on contact), plus total ITN usage:
+
+```python
+from estimint import calculate_dn0, net_types
+
+net_types()                      # ['pyrethroid_only', 'pyrethroid_pbo', 'pyrethroid_ppf', 'pyrethroid_pyrrole']
+res = calculate_dn0(0.5, py_only=0.4, py_pbo=0.3, py_pyrrole=0.2, py_ppf=0.1)
+res.dn0, res.itn_use             # weighted dn0, total net usage
 ```
 
 ## Utility Functions
@@ -140,7 +159,9 @@ df = strata_and_split(df, k_strata=16, seed=42)
 - duckdb >= 0.8.0
 - xgboost >= 1.6.0
 - scikit-learn >= 1.0.0
+- scipy >= 1.7.0
 - matplotlib >= 3.4.0
+- pyarrow >= 10.0.0 (Parquet I/O for the training pipeline)
 - requests >= 2.28.0 (optional, for model download)
 - appdirs >= 1.4.0 (optional, for cache directory)
 

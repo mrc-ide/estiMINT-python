@@ -15,7 +15,7 @@ Dependencies (equivalent to R imports):
 - scikit-learn (stats::kmeans)
 """
 
-__version__ = "1.3.1"
+__version__ = "1.4.0"
 __package_name__ = "estiMINT"
 
 # Public API exports
@@ -57,6 +57,8 @@ from .run import run_xgb_model
 
 from .hbr import estimate_eir_with_mosquito_delta
 
+from .bednet import calculate_dn0, net_types, DN0Result
+
 __all__ = [
     # utils
     "ts",
@@ -90,4 +92,8 @@ __all__ = [
     "run_xgb_model",
     # hbr
     "estimate_eir_with_mosquito_delta",
+    # bednet
+    "calculate_dn0",
+    "net_types",
+    "DN0Result",
 ]
