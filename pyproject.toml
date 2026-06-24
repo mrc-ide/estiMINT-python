@@ -46,6 +46,7 @@ scenarios = [
 ]
 all = ["estimint[train,viz,download,scenarios]"]
 
+[dependency-groups]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
