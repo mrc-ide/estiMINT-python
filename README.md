@@ -229,7 +229,7 @@ EIR), the mosquito-density HBR pipeline, and the bednet calculation.
 
 ## CI and releases
 
-The test suite runs on every push and pull request across Python 3.9 to 3.12, defined in
+The test suite runs on every push and pull request across Python 3.10 to 3.14, defined in
 [`.github/workflows/tests.yml`](.github/workflows/tests.yml).
 
 Releases publish to PyPI from [`.github/workflows/publish.yml`](.github/workflows/publish.yml).
