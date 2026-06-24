@@ -1,37 +1,33 @@
-name: publish
+name: Publish Release to PyPI
 
-# Build and publish to PyPI when a GitHub Release is published.
-# Release flow: bump `version` in pyproject.toml -> tag/create a Release -> this runs.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
-  publish:
-    name: build + publish to PyPI
+  run:
     runs-on: ubuntu-latest
-
-    # PyPI Trusted Publishing (OIDC) — no API token stored as a secret.
-    # One-time setup: add this repo + workflow as a trusted publisher in the
-    # PyPI project settings (https://pypi.org/manage/project/estimint/settings/publishing/).
     environment:
       name: pypi
-      url: https://pypi.org/project/estimint/
     permissions:
       id-token: write
-
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
+      - name: Checkout code
+        uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
-          enable-cache: true
-
-      - name: Build sdist + wheel
+            enable-cache: true
+            version: "0.11.18"
+      - name: Set up Python
+        run: uv python install
+      - name: Build
         run: uv build
-
-      # uv detects the GitHub Actions OIDC token automatically when
-      # id-token: write is granted, so no credentials are needed here.
-      - name: Publish to PyPI
+      # - name: Smoke test (wheel)
+        # run: uv run --isolated --no-project --with dist/*.whl tests/smoke_test.py
+      # - name: Smoke test (source distribution)
+        # run: uv run --isolated --no-project --with dist/*.tar.gz tests/smoke_test.py
+      - name: Publish
         run: uv publish
