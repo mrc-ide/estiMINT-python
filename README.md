@@ -1,6 +1,6 @@
-# estiMINT (Python)
+# estiMINT
 
-Python port of the estiMINT R package for EIR (Entomological Inoculation Rate) estimation using machine learning.
+Package for  EIR (Entomological Inoculation Rate) estimation using machine learning.
 
 It estimates EIR from prevalence, converts between EIR and human biting rate (including the effect of changes in mosquito density), and turns a bednet specification (net type and resistance level) into the `dn0` killing parameter.
 
@@ -15,7 +15,8 @@ Optional extras, by use case:
 ```bash
 pip install "estimint[train]"   # data prep + model training (duckdb, scikit-learn, pyarrow)
 pip install "estimint[viz]"     # plotting (matplotlib)
-pip install "estimint[all]"     # train + viz + model download
+pip install "estimint[scenarios]" # run_scenarios pipeline (stateMINT emulator)
+pip install "estimint[all]"
 pip install "estimint[dev]"     # test/lint/type-check toolchain
 ```
 
@@ -36,22 +37,8 @@ pip install estimint
 For local development with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync --extra all --extra dev
+uv sync --all-extras --dev
 ```
-
-## File mapping (R to Python)
-
-| R File | Python File | Description |
-|--------|-------------|-------------|
-| `estiMINT-package.R` | `__init__.py` | Package initialization and exports |
-| `globals.R` | `globals.py` | Global variables and constants |
-| `utils.R` | `utils.py` | Utility functions (metrics, QMAP, etc.) |
-| `data_processing.R` | `data_processing.py` | Data loading and preprocessing |
-| `models.R` | `models.py` | XGBoost model training |
-| `train.R` | `train.py` | Main training pipeline with K-fold CV |
-| `plotting.R` | `plotting.py` | Visualization functions |
-| `storage.R` | `storage.py` | Model persistence and loading |
-| `run.R` | `run.py` | Model inference |
 
 ## Data & retraining pipeline
 
@@ -245,23 +232,6 @@ project settings.
 2. **Data handling**: Uses pandas instead of data.table
 3. **Plotting**: Uses matplotlib instead of ggplot2
 4. **Global model**: Use `set_global_model()` / `get_global_model()` instead of `.GlobalEnv`
-
-## Dependencies
-
-Core, always installed, and enough for inference:
-
-- numpy >= 1.20.0
-- pandas >= 1.3.0
-- xgboost >= 1.6.0
-- scipy >= 1.7.0
-
-Optional extras, installed with `estimint[name]`:
-
-- `train` adds duckdb, scikit-learn and pyarrow for data prep and model training
-- `viz` adds matplotlib for plotting
-- `download` adds requests and appdirs for fetching published models
-- `all` combines train, viz and download
-- `dev` is the test and lint toolchain (pytest, pytest-cov, black, isort, mypy, flake8)
 
 ## License
 

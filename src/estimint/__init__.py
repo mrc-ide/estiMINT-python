@@ -4,8 +4,6 @@ estiMINT - EIR Estimation using Machine learning INTerventions
 This package provides tools for training and running XGBoost models
 to predict Entomological Inoculation Rate (EIR) from malaria intervention data.
 
-Equivalent to: estiMINT-package.R
-
 Dependencies
 ------------
 Core (inference): numpy, pandas, xgboost, scipy.
@@ -15,7 +13,6 @@ Optional extras:
 - download: requests, appdirs            (fetch published models)
 """
 
-__version__ = "1.4.0"
 __package_name__ = "estiMINT"
 
 # Public API exports
@@ -53,7 +50,7 @@ from .storage import (
     bundle_model,
 )
 
-from .run import run_xgb_model
+from .run import run_xgb_model, set_global_model, get_global_model
 
 from .hbr import estimate_eir_with_mosquito_delta
 
@@ -92,6 +89,8 @@ __all__ = [
     "bundle_model",
     # run
     "run_xgb_model",
+    "set_global_model",
+    "get_global_model",
     # hbr
     "estimate_eir_with_mosquito_delta",
     # bednet

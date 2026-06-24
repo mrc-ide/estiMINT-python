@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "estimint"
-version = "1.4.0"
-description = "EIR Estimation using Machine learning INTerventions - Python port"
+version = "1.4.2"
+description = "EIR Estimation using Machine learning interventions "
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     {name = "Cosmo Santoni", email = "cosmo.santoni@imperial.ac.uk"},
+    {name = "Anmol Thapar", email = "a.thapar@imperial.ac.uk"}
 ]
 keywords = [
     "malaria",
@@ -19,21 +20,7 @@ keywords = [
     "xgboost",
     "epidemiology",
 ]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Science/Research",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Topic :: Scientific/Engineering :: Bio-Informatics",
-]
 
-# Core runtime dependencies: everything needed to load a bundled model and run
-# inference (load_xgb_model / run_xgb_model / run_scenarios / calculate_dn0).
 dependencies = [
     "numpy>=1.20.0",
     "pandas>=1.3.0",
@@ -42,39 +29,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Data preparation + model training (not needed for inference):
-#   duckdb     -> load_and_filter() SQL over the simulation parquet
-#   scikit-learn -> strata_and_split() K-means stratification
-#   pyarrow    -> parquet engine for pd.read_parquet in models/*/train.py
 train = [
     "duckdb>=0.8.0",
     "scikit-learn>=1.0.0",
     "pyarrow>=10.0.0",
 ]
-# Plotting (plot_obs_pred and training diagnostic plots):
 viz = [
     "matplotlib>=3.4.0",
 ]
-# Optional model download from GitHub releases (graceful fallback if absent):
 download = [
     "requests>=2.28.0",
     "appdirs>=1.4.0",
 ]
-# run_scenarios pipeline: the stateMINT mamba2 emulator (PyPI distribution: mintstate,
-# imported as stateMINT). Needs Python >=3.12. Pinned to the mamba2-train branch via
-# [tool.uv.sources] for now.
 scenarios = [
-    "mintstate; python_version >= '3.12'",
+    "mintstate>=0.3.0"
 ]
-# Everything a model developer needs (train + plot + download):
-all = [
-    "duckdb>=0.8.0",
-    "scikit-learn>=1.0.0",
-    "pyarrow>=10.0.0",
-    "matplotlib>=3.4.0",
-    "requests>=2.28.0",
-    "appdirs>=1.4.0",
-]
+all = ["estimint[train,viz,download,scenarios]"]
+
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -90,18 +61,13 @@ Documentation = "https://github.com/CosmoNaught/estiMINT#readme"
 Repository = "https://github.com/CosmoNaught/estiMINT"
 Issues = "https://github.com/CosmoNaught/estiMINT/issues"
 
-[tool.uv.sources]
-# Dev-only override: pull mintstate from the mamba2-train branch. This is stripped from
-# the published package metadata, so it does not block PyPI uploads.
-mintstate = { git = "https://github.com/mrc-ide/stateMINT.git", branch = "mamba2-train" }
-
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 estimint = [
-    "*.txt", 
-    "*.csv", 
+    "*.txt",
+    "*.csv",
     "*.pkl",
     "*.json",
     "data/*",
@@ -112,14 +78,14 @@ estimint = [
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312", "py313"]
+target-version = ["py312", "py313"]
 
 [tool.isort]
 profile = "black"
 line_length = 100
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
