@@ -133,30 +133,30 @@ from estimint import run_scenarios
 scenarios = [
     dict(name="PBO nets, prevalence input, 60% more mosquitoes",
          input="prevalence", value=0.30,
-         net="pyrethroid_pbo", resistance=0.55, net_usage=0.85,
-         Q0=0.90, phi_bednets=0.85, seasonal=1, irs_use=0.40, lsm=0.0,
+         net_type_future="pyrethroid_pbo", res_use=0.55, itn_future=0.85,
+         Q0=0.90, phi=0.85, seasonal=1, irs=0.40, lsm=0.0,
          mosquito_delta=0.60),
     dict(name="Biting rate input",
          input="hbr", value=250000.0,
-         net="pyrethroid_ppf", resistance=0.45, net_usage=0.50,
-         Q0=0.80, phi_bednets=0.82, seasonal=0, irs_use=0.0),
+         net_type_future="pyrethroid_ppf", res_use=0.45, itn_future=0.50,
+         Q0=0.80, phi=0.82, seasonal=0, irs=0.0),
     dict(name="EIR supplied directly, no nets",
          input="eir", value=20.0,
-         Q0=0.88, phi_bednets=0.78, seasonal=1, irs_use=0.60),
+         Q0=0.88, phi=0.78, seasonal=1, irs=0.60),
 ]
 
 df = run_scenarios(scenarios)
 print(df[["name", "eir_baseline", "eir_final", "prev_y9", "cases_endline"]])
 ```
 
-Every scenario needs `input` and `value`, plus `Q0`, `phi_bednets`, `seasonal` and
-`irs_use`. `lsm` defaults to 0. To include nets give `net`, `resistance` and `net_usage`,
-or leave `net` out for none. `mosquito_delta` only applies when `input` is `"prevalence"`.
+Every scenario needs `input` and `value`, plus `Q0`, `phi`, `seasonal` and
+`irs`. `lsm` defaults to 0. To include nets give `net_type_future`, `res_use` and `itn_future`,
+or leave `net_type_future` out for none. `mosquito_delta` only applies when `input` is `"prevalence"`.
 
 The returned DataFrame has one row per scenario. Alongside the inputs it gives the
 estimated EIR (`eir_baseline`, and `eir_final` after any mosquito-density change) and the
 stateMINT output. That output is year-9 prevalence (`prev_y9`), endline prevalence and
-cases, and the full 157-step `prev_series` and `cases_series`. What you do with it is up to
+cases, and the full 157-step `prevalence` and `cases` series. What you do with it is up to
 you.
 
 The `estimint.scenarios` module is also where the simulation-based inference and experiment
