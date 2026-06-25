@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Union
 import numpy as np
 import pandas as pd
 
-from .bednet import calculate_dn0
+from .bednet import calculate_dn0, DN0Result
 from .run import run_xgb_model
 from .hbr import estimate_eir_with_mosquito_delta
 from .storage import load_xgb_model
@@ -19,6 +19,29 @@ _IDX_Y9 = int(np.argmin(np.abs(_ABS_T - 3285)))
 
 _MODELS: Dict[str, Any] = {}
 _EMULATORS: Dict[str, Dict[str, Any]] = {}
+
+_NET_KEYS = ("py_only", "py_pbo", "py_pyrrole", "py_ppf",
+             "pyrethroid_only", "pyrethroid_pbo", "pyrethroid_pyrrole", "pyrethroid_ppf")
+
+
+def _bednet(scn: Dict[str, Any]):
+    """Current and future net (dn0, itn_use); returns (cur, net_now, net_next)."""
+    cur = {nt: float(scn[nt]) for nt in _NET_KEYS if scn.get(nt)}
+    res_use = float(scn.get("res_use", 0.0))
+    res_future = float(scn["res_future"]) if scn.get("res_future") is not None else res_use
+
+    net_now = calculate_dn0(res_use, **cur) if cur else DN0Result(0.0, 0.0)
+
+    net_future = scn.get("net_type_future")
+    itn_future = scn.get("itn_future")
+    itn_future = None if itn_future is None else float(itn_future)
+    if itn_future == 0.0:
+        net_next = DN0Result(0.0, 0.0)
+    elif not net_future or itn_future is None:
+        net_next = calculate_dn0(res_future, **cur) if cur else DN0Result(0.0, 0.0)
+    else:
+        net_next = calculate_dn0(res_future, **{net_future: itn_future})
+    return cur, net_now, net_next
 
 
 def _est_models() -> Dict[str, Any]:
@@ -47,15 +70,18 @@ def _emulators(hf_repo: str) -> Dict[str, Any]:
 
 def _estimate_eir(scn: Dict[str, Any], est: Dict[str, Any]) -> Dict[str, Any]:
     """scenario -> EIR + the stateMINT covariate dict."""
-    net = scn.get("net_type_future")
-    if net:
-        res = calculate_dn0(scn["res_use"], **{net: scn["itn_future"]})
-        dn0_use, itn_use = res.dn0, res.itn_use * scn["itn_future"]
-    else:
-        dn0_use = itn_use = 0.0
+    cur, net_now, net_next = _bednet(scn)
+    dn0_use, itn_use = net_now.dn0, net_now.itn_use
+    dn0_future, itn_future = net_next.dn0, net_next.itn_use
 
     Q0, phi, seasonal = scn["Q0"], scn["phi"], float(scn["seasonal"])
-    irs_use, lsm = scn["irs"], scn.get("lsm", 0.0)
+    irs_use = scn["irs"]
+    irs_future = scn.get("irs_future", irs_use)
+    routine = scn.get("routine", 0.0)
+    ppf = float(scn.get("py_ppf", 0.0)) + float(scn.get("pyrethroid_ppf", 0.0))
+    lsm = float(scn.get("lsm", 0.0))
+    if ppf > 0:
+        lsm = min(ppf * 0.248 + lsm, 1.0)
     feats = dict(dn0_use=dn0_use, Q0=Q0, phi_bednets=phi,
                  seasonal=seasonal, itn_use=itn_use, irs_use=irs_use)
 
@@ -75,12 +101,14 @@ def _estimate_eir(scn: Dict[str, Any], est: Dict[str, Any]) -> Dict[str, Any]:
         r = estimate_eir_with_mosquito_delta(prevalence=value, mosquito_delta=delta, **feats)
         eir_final, hbr_baseline, hbr_new = r["eir_new"], r["hbr_baseline"], r["hbr_new"]
 
-    # future = use: interventions stay on past day 3285.
-    cov = dict(eir=eir_final, dn0_use=dn0_use, dn0_future=dn0_use, Q0=Q0, phi_bednets=phi,
-               seasonal=seasonal, routine=0.0, itn_use=itn_use, irs_use=irs_use,
-               itn_future=itn_use, irs_future=irs_use, lsm=lsm)
-    row = dict(name=scn.get("name"), input_mode=mode, net=net or "none",
-               dn0_use=dn0_use, itn_use=itn_use, irs_use=irs_use, lsm=lsm, seasonal=seasonal,
+    cov = dict(eir=eir_final, dn0_use=dn0_use, dn0_future=dn0_future, Q0=Q0, phi_bednets=phi,
+               seasonal=seasonal, routine=routine, itn_use=itn_use, irs_use=irs_use,
+               itn_future=itn_future, irs_future=irs_future, lsm=lsm)
+    row = dict(name=scn.get("name"), input_mode=mode, net="+".join(cur) or "none",
+               net_future=scn.get("net_type_future") or "none",
+               dn0_use=dn0_use, itn_use=itn_use, irs_use=irs_use,
+               dn0_future=dn0_future, itn_future=itn_future, irs_future=irs_future,
+               routine=routine, lsm=lsm, seasonal=seasonal,
                eir_baseline=eir_base, mosquito_delta=delta, eir_final=eir_final,
                hbr_baseline=hbr_baseline, hbr_new=hbr_new)
     return {"row": row, "cov": cov}
@@ -91,13 +119,7 @@ def run_scenarios(
     *,
     hf_repo: str = HF_REPO,
 ) -> pd.DataFrame:
-    """Run scenarios end-to-end (estiMINT EIR -> stateMINT emulator) -> DataFrame.
-
-    Each scenario: input ("prevalence"|"hbr"|"eir") + value; Q0, phi, seasonal,
-    irs; lsm (opt); nets via net_type_future/res_use/itn_future (opt); mosquito_delta (opt,
-    prevalence only); name (opt). Output adds prev_y9/prev_endline/cases_endline and the
-    length-157 prevalence/cases series.
-    """
+    
     if isinstance(scenarios, pd.DataFrame):
         scenarios = scenarios.to_dict(orient="records")
     if not scenarios:
