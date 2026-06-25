@@ -37,12 +37,12 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     ts("Loading training data...")
-    dt = pd.read_parquet(DATA_PATH)
-    print(f"Loaded {len(dt):,} rows")
+    df = pd.read_parquet(DATA_PATH)
+    print(f"Loaded {len(df):,} rows")
 
     features = ["eir", "dn0_use", "Q0", "phi_bednets", "seasonal", "itn_use", "irs_use"]
 
-    dt["hbr_log10"] = np.log10(dt["hbr_y9"])
+    df["hbr_log10"] = np.log10(df["hbr_y9"])
 
     xgb_params = {
         "objective": "reg:squarederror",
@@ -60,18 +60,18 @@ def main():
     ts("Creating %d strata on log10(HBR) and 70/15/15 split...", K_STRATA)
     np.random.seed(SEED)
 
-    hbr_log10 = dt["hbr_log10"].values.reshape(-1, 1)
+    hbr_log10 = df["hbr_log10"].values.reshape(-1, 1)
     km = KMeans(n_clusters=K_STRATA, n_init=50, max_iter=5000, random_state=SEED)
     km.fit(hbr_log10)
 
     centers = km.cluster_centers_.flatten()
     ord_idx = np.argsort(centers)
     id_map = {old_id: new_id + 1 for new_id, old_id in enumerate(ord_idx)}
-    dt["strat_bin"] = np.array([id_map[c] for c in km.labels_])
+    df["strat_bin"] = np.array([id_map[c] for c in km.labels_])
 
-    dt["split"] = None
-    for b in sorted(dt["strat_bin"].unique()):
-        idx = dt[dt["strat_bin"] == b].index.tolist()
+    df["split"] = None
+    for b in sorted(df["strat_bin"].unique()):
+        idx = df[df["strat_bin"] == b].index.tolist()
         n_b = len(idx)
         n_tr = int(np.floor(0.70 * n_b))
         n_val = int(np.floor(0.15 * n_b))
@@ -82,48 +82,48 @@ def main():
         val_idx = idx[n_tr:n_tr + n_val] if n_val > 0 else []
         te_idx = idx[n_tr + n_val:]
 
-        dt.loc[tr_idx, "split"] = "train"
-        dt.loc[val_idx, "split"] = "val"
-        dt.loc[te_idx, "split"] = "test"
+        df.loc[tr_idx, "split"] = "train"
+        df.loc[val_idx, "split"] = "val"
+        df.loc[te_idx, "split"] = "test"
 
-    dt["split"] = dt["split"].fillna("train")
+    df["split"] = df["split"].fillna("train")
 
-    dt_test = dt[dt["split"] == "test"]
-    X_test = dt_test[features].values.astype(np.float64)
-    y_test = dt_test["hbr_log10"].values
+    df_test = df[df["split"] == "test"]
+    X_test = df_test[features].values.astype(np.float64)
+    y_test = df_test["hbr_log10"].values
     obs_hbr_test = np.power(10, y_test)
 
-    ts("Test set: %d rows", len(dt_test))
+    ts("Test set: %d rows", len(df_test))
 
     ts("Assigning %d-fold CV within TRAIN+VAL strata...", K_FOLDS)
-    dtcv = dt[dt["split"] != "test"].copy()
+    dfcv = df[df["split"] != "test"].copy()
 
     np.random.seed(SEED + 1)
 
-    dtcv["fold"] = 0
-    for b in dtcv["strat_bin"].unique():
-        mask = dtcv["strat_bin"] == b
+    dfcv["fold"] = 0
+    for b in dfcv["strat_bin"].unique():
+        mask = dfcv["strat_bin"] == b
         n_b = mask.sum()
-        idx = dtcv.index[mask].tolist()
+        idx = dfcv.index[mask].tolist()
         np.random.shuffle(idx)
         folds = np.tile(np.arange(1, K_FOLDS + 1), int(np.ceil(n_b / K_FOLDS)))[:n_b]
         np.random.shuffle(folds)
-        dtcv.loc[idx, "fold"] = folds
+        dfcv.loc[idx, "fold"] = folds
 
     ts("Running %d-fold CV with early stopping...", K_FOLDS)
-    oof_pred_raw = np.full(len(dtcv), np.nan)
+    oof_pred_raw = np.full(len(dfcv), np.nan)
     best_iters = np.zeros(K_FOLDS, dtype=int)
 
     for k in range(1, K_FOLDS + 1):
         ts(" Fold %d / %d", k, K_FOLDS)
 
-        idx_val = dtcv["fold"] == k
-        idx_tr = dtcv["fold"] != k
+        idx_val = dfcv["fold"] == k
+        idx_tr = dfcv["fold"] != k
 
-        X_tr = dtcv.loc[idx_tr, features].values.astype(np.float64)
-        y_tr = dtcv.loc[idx_tr, "hbr_log10"].values
-        X_va = dtcv.loc[idx_val, features].values.astype(np.float64)
-        y_va = dtcv.loc[idx_val, "hbr_log10"].values
+        X_tr = dfcv.loc[idx_tr, features].values.astype(np.float64)
+        y_tr = dfcv.loc[idx_tr, "hbr_log10"].values
+        X_va = dfcv.loc[idx_val, features].values.astype(np.float64)
+        y_va = dfcv.loc[idx_val, "hbr_log10"].values
 
         w_tr = make_value_weights(np.power(10, y_tr), digits=3)
         w_va = make_value_weights(np.power(10, y_va), digits=3)
@@ -144,7 +144,7 @@ def main():
         pred_log10_va = mdl.predict(dva)
         oof_pred_raw[idx_val.values] = np.power(10, pred_log10_va)
 
-    obs_cv_raw = np.power(10, dtcv["hbr_log10"].values)
+    obs_cv_raw = np.power(10, dfcv["hbr_log10"].values)
 
     ts("Fitting final calibrator (QMAP + positive scale) on OOF...")
     cal_oof = fit_qmap_w(oof_pred_raw, obs_cv_raw, ngrid=1024, round_digits=8)
@@ -166,9 +166,9 @@ def main():
     best_nrounds = int(np.round(np.median(best_iters)))
     print(f"Best nrounds: {best_nrounds}")
 
-    dt_trcv = dt[dt["split"] != "test"]
-    X_trcv = dt_trcv[features].values.astype(np.float64)
-    y_trcv = dt_trcv["hbr_log10"].values
+    df_trcv = df[df["split"] != "test"]
+    X_trcv = df_trcv[features].values.astype(np.float64)
+    y_trcv = df_trcv["hbr_log10"].values
     w_trcv = make_value_weights(np.power(10, y_trcv), digits=3)
 
     dtrcv = xgb.DMatrix(X_trcv, label=y_trcv, weight=w_trcv)
@@ -217,8 +217,8 @@ def main():
         "inverse": "pow10",
         "training_data": {
             "source": "datasets/estimint_simulations_y9.parquet (prev_y9 >= 0.01 AND hbr_y9 > 0)",
-            "n_rows": len(dt),
-            "n_params": dt["parameter_index"].nunique()
+            "n_rows": len(df),
+            "n_params": df["parameter_index"].nunique()
         },
         "cv": {
             "K": K_FOLDS,
