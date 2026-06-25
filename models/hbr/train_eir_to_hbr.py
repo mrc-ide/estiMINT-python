@@ -17,8 +17,7 @@ from sklearn.cluster import KMeans
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
 from estimint.utils import (
-    ts, r2, rmse, mse, mae, median_ae, mae_rel, rmsle,
-    safe_div, smape, fit_qmap_w, predict_qmap_w, scale_pos
+    ts, r2, rmse, mae, fit_qmap_w, predict_qmap_w, scale_pos
 )
 from estimint.data_processing import make_value_weights
 from estimint.plotting import plot_obs_pred
@@ -38,12 +37,12 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     ts("Loading training data...")
-    DT = pd.read_parquet(DATA_PATH)
-    print(f"Loaded {len(DT):,} rows")
+    dt = pd.read_parquet(DATA_PATH)
+    print(f"Loaded {len(dt):,} rows")
 
     features = ["eir", "dn0_use", "Q0", "phi_bednets", "seasonal", "itn_use", "irs_use"]
 
-    DT["hbr_log10"] = np.log10(DT["hbr_y9"])
+    dt["hbr_log10"] = np.log10(dt["hbr_y9"])
 
     xgb_params = {
         "objective": "reg:squarederror",
@@ -61,18 +60,18 @@ def main():
     ts("Creating %d strata on log10(HBR) and 70/15/15 split...", K_STRATA)
     np.random.seed(SEED)
 
-    hbr_log10 = DT["hbr_log10"].values.reshape(-1, 1)
+    hbr_log10 = dt["hbr_log10"].values.reshape(-1, 1)
     km = KMeans(n_clusters=K_STRATA, n_init=50, max_iter=5000, random_state=SEED)
     km.fit(hbr_log10)
 
     centers = km.cluster_centers_.flatten()
     ord_idx = np.argsort(centers)
     id_map = {old_id: new_id + 1 for new_id, old_id in enumerate(ord_idx)}
-    DT["strat_bin"] = np.array([id_map[c] for c in km.labels_])
+    dt["strat_bin"] = np.array([id_map[c] for c in km.labels_])
 
-    DT["split"] = None
-    for b in sorted(DT["strat_bin"].unique()):
-        idx = DT[DT["strat_bin"] == b].index.tolist()
+    dt["split"] = None
+    for b in sorted(dt["strat_bin"].unique()):
+        idx = dt[dt["strat_bin"] == b].index.tolist()
         n_b = len(idx)
         n_tr = int(np.floor(0.70 * n_b))
         n_val = int(np.floor(0.15 * n_b))
@@ -83,48 +82,48 @@ def main():
         val_idx = idx[n_tr:n_tr + n_val] if n_val > 0 else []
         te_idx = idx[n_tr + n_val:]
 
-        DT.loc[tr_idx, "split"] = "train"
-        DT.loc[val_idx, "split"] = "val"
-        DT.loc[te_idx, "split"] = "test"
+        dt.loc[tr_idx, "split"] = "train"
+        dt.loc[val_idx, "split"] = "val"
+        dt.loc[te_idx, "split"] = "test"
 
-    DT["split"] = DT["split"].fillna("train")
+    dt["split"] = dt["split"].fillna("train")
 
-    DT_test = DT[DT["split"] == "test"]
-    X_test = DT_test[features].values.astype(np.float64)
-    y_test = DT_test["hbr_log10"].values
+    dt_test = dt[dt["split"] == "test"]
+    X_test = dt_test[features].values.astype(np.float64)
+    y_test = dt_test["hbr_log10"].values
     obs_hbr_test = np.power(10, y_test)
 
-    ts("Test set: %d rows", len(DT_test))
+    ts("Test set: %d rows", len(dt_test))
 
     ts("Assigning %d-fold CV within TRAIN+VAL strata...", K_FOLDS)
-    DTcv = DT[DT["split"] != "test"].copy()
+    dtcv = dt[dt["split"] != "test"].copy()
 
     np.random.seed(SEED + 1)
 
-    DTcv["fold"] = 0
-    for b in DTcv["strat_bin"].unique():
-        mask = DTcv["strat_bin"] == b
+    dtcv["fold"] = 0
+    for b in dtcv["strat_bin"].unique():
+        mask = dtcv["strat_bin"] == b
         n_b = mask.sum()
-        idx = DTcv.index[mask].tolist()
+        idx = dtcv.index[mask].tolist()
         np.random.shuffle(idx)
         folds = np.tile(np.arange(1, K_FOLDS + 1), int(np.ceil(n_b / K_FOLDS)))[:n_b]
         np.random.shuffle(folds)
-        DTcv.loc[idx, "fold"] = folds
+        dtcv.loc[idx, "fold"] = folds
 
     ts("Running %d-fold CV with early stopping...", K_FOLDS)
-    oof_pred_raw = np.full(len(DTcv), np.nan)
+    oof_pred_raw = np.full(len(dtcv), np.nan)
     best_iters = np.zeros(K_FOLDS, dtype=int)
 
     for k in range(1, K_FOLDS + 1):
         ts(" Fold %d / %d", k, K_FOLDS)
 
-        idx_val = DTcv["fold"] == k
-        idx_tr = DTcv["fold"] != k
+        idx_val = dtcv["fold"] == k
+        idx_tr = dtcv["fold"] != k
 
-        X_tr = DTcv.loc[idx_tr, features].values.astype(np.float64)
-        y_tr = DTcv.loc[idx_tr, "hbr_log10"].values
-        X_va = DTcv.loc[idx_val, features].values.astype(np.float64)
-        y_va = DTcv.loc[idx_val, "hbr_log10"].values
+        X_tr = dtcv.loc[idx_tr, features].values.astype(np.float64)
+        y_tr = dtcv.loc[idx_tr, "hbr_log10"].values
+        X_va = dtcv.loc[idx_val, features].values.astype(np.float64)
+        y_va = dtcv.loc[idx_val, "hbr_log10"].values
 
         w_tr = make_value_weights(np.power(10, y_tr), digits=3)
         w_va = make_value_weights(np.power(10, y_va), digits=3)
@@ -145,7 +144,7 @@ def main():
         pred_log10_va = mdl.predict(dva)
         oof_pred_raw[idx_val.values] = np.power(10, pred_log10_va)
 
-    obs_cv_raw = np.power(10, DTcv["hbr_log10"].values)
+    obs_cv_raw = np.power(10, dtcv["hbr_log10"].values)
 
     ts("Fitting final calibrator (QMAP + positive scale) on OOF...")
     cal_oof = fit_qmap_w(oof_pred_raw, obs_cv_raw, ngrid=1024, round_digits=8)
@@ -167,9 +166,9 @@ def main():
     best_nrounds = int(np.round(np.median(best_iters)))
     print(f"Best nrounds: {best_nrounds}")
 
-    DT_trcv = DT[DT["split"] != "test"]
-    X_trcv = DT_trcv[features].values.astype(np.float64)
-    y_trcv = DT_trcv["hbr_log10"].values
+    dt_trcv = dt[dt["split"] != "test"]
+    X_trcv = dt_trcv[features].values.astype(np.float64)
+    y_trcv = dt_trcv["hbr_log10"].values
     w_trcv = make_value_weights(np.power(10, y_trcv), digits=3)
 
     dtrcv = xgb.DMatrix(X_trcv, label=y_trcv, weight=w_trcv)
@@ -217,9 +216,9 @@ def main():
         "transform": "log10",
         "inverse": "pow10",
         "training_data": {
-            "source": "datasets/estimint_simulations_y9.parquet (prev_y9 >= 0.02 AND hbr_y9 > 0)",
-            "n_rows": len(DT),
-            "n_params": DT["parameter_index"].nunique()
+            "source": "datasets/estimint_simulations_y9.parquet (prev_y9 >= 0.01 AND hbr_y9 > 0)",
+            "n_rows": len(dt),
+            "n_params": dt["parameter_index"].nunique()
         },
         "cv": {
             "K": K_FOLDS,
