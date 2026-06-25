@@ -16,8 +16,7 @@ from sklearn.cluster import KMeans
 sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
 from estimint.utils import (
-    ts, r2, rmse, mse, mae, median_ae, mae_rel, rmsle,
-    safe_div, smape, fit_qmap_w, predict_qmap_w, scale_pos
+    ts, r2, rmse, mae, fit_qmap_w, predict_qmap_w, scale_pos
 )
 from estimint.data_processing import make_value_weights
 from estimint.plotting import plot_obs_pred

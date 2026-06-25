@@ -6,7 +6,7 @@ Equivalent to: train.R
 
 import pickle
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 import numpy as np
 import pandas as pd

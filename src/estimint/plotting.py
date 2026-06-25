@@ -4,7 +4,6 @@ Plotting functions for estiMINT package.
 Equivalent to: plotting.R
 """
 
-from typing import Optional
 from pathlib import Path
 
 import numpy as np

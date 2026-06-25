@@ -5,9 +5,8 @@ Equivalent to: utils.R
 """
 
 import sys
-import os
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any, Union
 from pathlib import Path
 
 import numpy as np

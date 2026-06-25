@@ -4,7 +4,6 @@ These exercise the bundled models in src/estimint/data, so they run offline.
 """
 
 import pandas as pd
-import pytest
 
 from estimint import (
     load_xgb_model,
