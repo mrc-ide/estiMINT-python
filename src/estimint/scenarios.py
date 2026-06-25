@@ -47,15 +47,15 @@ def _emulators(hf_repo: str) -> Dict[str, Any]:
 
 def _estimate_eir(scn: Dict[str, Any], est: Dict[str, Any]) -> Dict[str, Any]:
     """scenario -> EIR + the stateMINT covariate dict."""
-    net = scn.get("net")
+    net = scn.get("net_type_future")
     if net:
-        res = calculate_dn0(scn["resistance"], **{net: scn["net_usage"]})
-        dn0_use, itn_use = res.dn0, res.itn_use * scn["net_usage"]
+        res = calculate_dn0(scn["res_use"], **{net: scn["itn_future"]})
+        dn0_use, itn_use = res.dn0, res.itn_use * scn["itn_future"]
     else:
         dn0_use = itn_use = 0.0
 
-    Q0, phi, seasonal = scn["Q0"], scn["phi_bednets"], float(scn["seasonal"])
-    irs_use, lsm = scn["irs_use"], scn.get("lsm", 0.0)
+    Q0, phi, seasonal = scn["Q0"], scn["phi"], float(scn["seasonal"])
+    irs_use, lsm = scn["irs"], scn.get("lsm", 0.0)
     feats = dict(dn0_use=dn0_use, Q0=Q0, phi_bednets=phi,
                  seasonal=seasonal, itn_use=itn_use, irs_use=irs_use)
 
@@ -93,10 +93,10 @@ def run_scenarios(
 ) -> pd.DataFrame:
     """Run scenarios end-to-end (estiMINT EIR -> stateMINT emulator) -> DataFrame.
 
-    Each scenario: input ("prevalence"|"hbr"|"eir") + value; Q0, phi_bednets, seasonal,
-    irs_use; lsm (opt); nets via net/resistance/net_usage (opt); mosquito_delta (opt,
+    Each scenario: input ("prevalence"|"hbr"|"eir") + value; Q0, phi, seasonal,
+    irs; lsm (opt); nets via net_type_future/res_use/itn_future (opt); mosquito_delta (opt,
     prevalence only); name (opt). Output adds prev_y9/prev_endline/cases_endline and the
-    length-157 prev_series/cases_series.
+    length-157 prevalence/cases series.
     """
     if isinstance(scenarios, pd.DataFrame):
         scenarios = scenarios.to_dict(orient="records")
@@ -108,11 +108,11 @@ def run_scenarios(
 
     parts = [_estimate_eir(scn, est) for scn in scenarios]
     covs = [p["cov"] for p in parts]
-    prev = np.asarray(emu["prevalence"].predict(covs), dtype=np.float32)
-    cases = np.maximum(np.asarray(emu["cases"].predict(covs), dtype=np.float32), 0.0)
+    prev = emu["prevalence"].predict(covs)
+    cases = np.maximum(emu["cases"].predict(covs), 0.0)
 
     return pd.DataFrame([
         {**part["row"], "prev_y9": float(p[_IDX_Y9]), "prev_endline": float(p[-1]),
-         "cases_endline": float(c[-1]), "prev_series": p, "cases_series": c}
+         "cases_endline": float(c[-1]), "prevalence": p, "cases": c}
         for part, p, c in zip(parts, prev, cases)
     ])

@@ -10,7 +10,7 @@ import pytest
 
 from estimint.scenarios import _estimate_eir, _est_models, run_scenarios
 
-INTV = dict(Q0=0.87, phi_bednets=0.82, seasonal=0.0, irs_use=0.0)
+INTV = dict(Q0=0.87, phi=0.82, seasonal=0.0, irs=0.0)
 
 
 @pytest.fixture(scope="module")
@@ -37,10 +37,10 @@ class TestEstimateEir:
         assert out["row"]["eir_baseline"] > 0
 
     def test_bednet_spec_scales_itn_by_usage(self, est):
-        # mirrors the demo script: itn_use = calculate_dn0(...).itn_use * net_usage
+        # mirrors the demo script: itn_use = calculate_dn0(...).itn_use * itn_future
         out = _estimate_eir(
-            dict(input="prevalence", value=0.30, net="pyrethroid_only",
-                 resistance=0.30, net_usage=0.70, **INTV), est)
+            dict(input="prevalence", value=0.30, net_type_future="pyrethroid_only",
+                 res_use=0.30, itn_future=0.70, **INTV), est)
         assert out["row"]["dn0_use"] > 0
         assert out["row"]["itn_use"] == pytest.approx(0.70 * 0.70)
 
@@ -70,12 +70,12 @@ class TestRunScenariosFullPipeline:
         pytest.importorskip("stateMINT", reason="stateMINT not installed")
         df = run_scenarios([
             dict(name="prev+delta", input="prevalence", value=0.30,
-                 net="pyrethroid_pbo", resistance=0.55, net_usage=0.85,
-                 Q0=0.90, phi_bednets=0.85, seasonal=1, irs_use=0.40, mosquito_delta=0.60),
+                 net_type_future="pyrethroid_pbo", res_use=0.55, itn_future=0.85,
+                 Q0=0.90, phi=0.85, seasonal=1, irs=0.40, mosquito_delta=0.60),
             dict(name="eir", input="eir", value=20.0,
-                 Q0=0.88, phi_bednets=0.78, seasonal=1, irs_use=0.60),
+                 Q0=0.88, phi=0.78, seasonal=1, irs=0.60),
         ])
         assert len(df) == 2
-        assert {"eir_final", "prev_y9", "prev_series", "cases_series"} <= set(df.columns)
-        assert len(df.iloc[0]["prev_series"]) == 157
-        assert (df["cases_series"].iloc[0] >= 0).all()
+        assert {"eir_final", "prev_y9", "prevalence", "cases"} <= set(df.columns)
+        assert len(df.iloc[0]["prevalence"]) == 157
+        assert (df["cases"].iloc[0] >= 0).all()
