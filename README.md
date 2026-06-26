@@ -129,20 +129,21 @@ download from HuggingFace.
 
 ```python
 from estimint import run_scenarios
-from estimint.scenarios import Scenario
+from estimint.scenarios import Scenario, EirTarget
 
 scenarios = [
     Scenario(name="PBO nets, prevalence input, 60% more mosquitoes",
-             input="prevalence", value=0.30,
+             eir_target=EirTarget(0.30, "prevalence"),
              res_use=0.55, py_pbo=0.85,
              Q0=0.90, phi=0.85, seasonal=1, irs=0.40, lsm=0.0,
              mosquito_delta=0.60),
     Scenario(name="Biting rate input, mixed nets",
-             input="hbr", value=250000.0,
+             eir_target=EirTarget(250000.0, "hbr"),
              res_use=0.45, py_only=0.30, py_ppf=0.20,
              Q0=0.80, phi=0.82, seasonal=0, irs=0.0),
     Scenario(name="EIR supplied directly, no nets",
-             input="eir", value=20.0, res_use=0.0,
+             eir_target=EirTarget(20.0, "eir"),
+             res_use=0.0,
              Q0=0.88, phi=0.78, seasonal=1, irs=0.60),
 ]
 
@@ -150,7 +151,7 @@ df = run_scenarios(scenarios)
 print(df[["name", "eir_baseline", "eir_final", "prev_y9", "cases_endline"]])
 ```
 
-Every scenario is a `Scenario` and needs `name`, `res_use`, `input`, `value`, `Q0`,
+Every scenario is a `Scenario` and needs `name`, `res_use`, `eir_target`, `Q0`,
 `phi`, `seasonal` and `irs`. `lsm`, `routine` and `irs_future` default to 0 (note
 `irs_future` does **not** default to `irs` — set it explicitly if you want IRS to
 continue). **Current nets:** give a net-type usage mix (`py_only`, `py_pbo`,
@@ -158,7 +159,7 @@ continue). **Current nets:** give a net-type usage mix (`py_only`, `py_pbo`,
 future legs share the same `res_use`. **Future nets:** give `net_type_future` +
 `itn_future` to switch net type; omit `net_type_future` and the future leg is zeroed
 (it does **not** carry the current mix forward), or set `itn_future=0` to remove
-nets explicitly. `mosquito_delta` only applies when `input` is `"prevalence"`.
+nets explicitly. `mosquito_delta` only applies when `eir_target.input_mode` is `"prevalence"`.
 
 The returned DataFrame has one row per scenario. Alongside the inputs it gives the
 estimated EIR (`eir_baseline`, and `eir_final` after any mosquito-density change) and the
