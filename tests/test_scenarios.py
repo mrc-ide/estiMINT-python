@@ -5,18 +5,23 @@ The full run_scenarios call also runs the stateMINT emulator, so it is skipped
 unless stateMINT is installed.
 """
 
+from typing import Any
+
 import numpy as np
 import pytest
 
-from estimint.scenarios import Scenario, _estimate_eir, _est_models, run_scenarios
+from estimint.scenarios import _estimate_eir, _est_models, run_scenarios
+from estimint.types import EirTarget, Scenario
 
-INTV = dict(Q0=0.87, phi=0.82, seasonal=0.0, irs=0.0)
+INTV: dict[str, Any] = dict(Q0=0.87, phi=0.82, seasonal=0.0, irs=0.0)
 
 
-def mk(**kwargs) -> Scenario:
-    defaults = dict(name="t", res_use=0.0, **INTV)
+def mk(**kwargs: Any) -> Scenario:
+    defaults: dict[str, Any] = dict(name="t", res_use=0.0, **INTV)
+    input_mode = kwargs.pop("input")
+    input_value = kwargs.pop("value")
     defaults.update(kwargs)
-    return Scenario(**defaults)
+    return Scenario(eir_target=EirTarget(input_value, input_mode), **defaults)
 
 
 @pytest.fixture(scope="module")
@@ -125,11 +130,11 @@ class TestRunScenariosFullPipeline:
     def test_end_to_end(self):
         pytest.importorskip("stateMINT", reason="stateMINT not installed")
         df = run_scenarios([
-            Scenario(name="prev+delta", input="prevalence", value=0.30,
+            Scenario(name="prev+delta", eir_target=EirTarget(0.30, "prevalence"),
                      py_only=0.60, res_use=0.55, net_type_future="pyrethroid_pbo",
                      itn_future=0.85,
                      Q0=0.90, phi=0.85, seasonal=1, irs=0.40, mosquito_delta=0.60),
-            Scenario(name="eir", input="eir", value=20.0, res_use=0.0,
+            Scenario(name="eir", eir_target=EirTarget(20.0, "eir"), res_use=0.0,
                      Q0=0.88, phi=0.78, seasonal=1, irs=0.60),
         ])
         assert len(df) == 2

@@ -11,7 +11,7 @@ from .bednet import calculate_dn0, DN0Result
 from .run import run_xgb_model
 from .hbr import estimate_eir_with_mosquito_delta
 from .storage import load_xgb_model
-from dataclasses import dataclass
+from .types import Scenario
 
 HF_REPO = "dide-ic/stateMINT"
 # 157 windows of 14 days from day 2190; intervention at day 3285.
@@ -66,6 +66,9 @@ def _emulators(hf_repo: str) -> Dict[str, Any]:
     return _EMULATORS[hf_repo]
 
 
+_EIR_INPUT_COLS = {"prevalence": ("prev_y9", "prevalence"), "hbr": ("hbr_y9", "hbr")}
+
+
 def _estimate_eir(scenario: Scenario, eir_models: Dict[str, Any]) -> Dict[str, Any]:
     """scenario -> EIR + the stateMINT covariate dict."""
     cur_nets, net_now, net_next = _bednet(scenario)
@@ -82,27 +85,27 @@ def _estimate_eir(scenario: Scenario, eir_models: Dict[str, Any]) -> Dict[str, A
         lsm = min(ppf * 0.248 + lsm, 1.0)
     feats = dict(dn0_use=dn0_use, Q0=Q0, phi_bednets=phi, seasonal=seasonal, itn_use=itn_use, irs_use=irs_use)
 
-    input_mode, value = scenario.input, scenario.value
+    # ── EIR by input mode ──
+    delta = scenario.mosquito_delta
+    hbr_baseline, hbr_new = np.nan, np.nan
+    input_mode, input_value = scenario.eir_target.input_mode, scenario.eir_target.input_value
+
     if input_mode == "eir":
-        eir_base = value
-    elif input_mode == "prevalence":
-        eir_base = float(
+        eir_base = eir_final = input_value
+    elif delta and input_mode == "prevalence":
+        r = estimate_eir_with_mosquito_delta(prevalence=input_value, mosquito_delta=delta, **feats)
+        eir_base, eir_final = r["eir_baseline"], r["eir_new"]
+        hbr_baseline, hbr_new = r["hbr_baseline"], r["hbr_new"]
+    elif input_mode in _EIR_INPUT_COLS:
+        col, model_key = _EIR_INPUT_COLS[input_mode]
+        eir_base = eir_final = float(
             run_xgb_model(
-                pd.DataFrame({**{k: [v] for k, v in feats.items()}, "prev_y9": [value]}), eir_models["prevalence"]
+                pd.DataFrame({**{k: [v] for k, v in feats.items()}, col: [input_value]}),
+                eir_models[model_key],
             )[0]
-        )
-    elif input_mode == "hbr":
-        eir_base = float(
-            run_xgb_model(pd.DataFrame({**{k: [v] for k, v in feats.items()}, "hbr_y9": [value]}), eir_models["hbr"])[0]
         )
     else:
         raise ValueError(f"'input' must be 'prevalence', 'hbr' or 'eir'; got {input_mode!r}")
-
-    eir_final, hbr_baseline, hbr_new = eir_base, np.nan, np.nan
-    delta = scenario.mosquito_delta
-    if delta and input_mode == "prevalence":
-        r = estimate_eir_with_mosquito_delta(prevalence=value, mosquito_delta=delta, **feats)
-        eir_final, hbr_baseline, hbr_new = r["eir_new"], r["hbr_baseline"], r["hbr_new"]
 
     cov = dict(
         eir=eir_final,
@@ -169,25 +172,3 @@ def run_scenarios(
             for part, p, c in zip(parts, prev, cases)
         ]
     )
-
-
-@dataclass
-class Scenario:
-    name: str
-    res_use: float
-    Q0: float
-    phi: float
-    seasonal: float
-    irs: float
-    value: float
-    input: str = "prevalence"
-    py_only: float = 0.0
-    py_pbo: float = 0.0
-    py_pyrrole: float = 0.0
-    py_ppf: float = 0.0
-    mosquito_delta: float = 0.0
-    itn_future: float = 0.0
-    net_type_future: str | None = None
-    irs_future: float = 0.0
-    routine: float = 0.0
-    lsm: float = 0.0
