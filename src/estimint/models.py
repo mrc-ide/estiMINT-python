@@ -4,7 +4,7 @@ Model training functions for estiMINT package.
 Equivalent to: models.R
 """
 
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional
 import numpy as np
 import xgboost as xgb
 from numpy.typing import ArrayLike

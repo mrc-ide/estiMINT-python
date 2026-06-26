@@ -4,12 +4,12 @@ Plotting functions for estiMINT package.
 Equivalent to: plotting.R
 """
 
-from typing import Optional
 from pathlib import Path
 
 import numpy as np
-import matplotlib.pyplot as plt
 from numpy.typing import ArrayLike
+
+# matplotlib imported lazily in plot_obs_pred (estimint[viz]).
 
 
 def plot_obs_pred(
@@ -45,9 +45,17 @@ def plot_obs_pred(
     None
         Saves plot to file
     """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "plot_obs_pred() requires matplotlib. "
+            "Install the plotting extras: pip install estimint[viz]"
+        )
+
     obs = np.asarray(obs)
     pred = np.asarray(pred)
-    
+
     # Create figure
     fig, ax = plt.subplots(figsize=(7.5, 6), dpi=150)
     

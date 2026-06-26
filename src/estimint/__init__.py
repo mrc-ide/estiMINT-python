@@ -4,18 +4,15 @@ estiMINT - EIR Estimation using Machine learning INTerventions
 This package provides tools for training and running XGBoost models
 to predict Entomological Inoculation Rate (EIR) from malaria intervention data.
 
-Equivalent to: estiMINT-package.R
-
-Dependencies (equivalent to R imports):
-- pandas, polars (data.table equivalent)
-- duckdb (DBI + duckdb)
-- xgboost (xgboost)
-- numpy (stats)
-- matplotlib, seaborn (ggplot2)
-- scikit-learn (stats::kmeans)
+Dependencies
+------------
+Core (inference): numpy, pandas, xgboost, scipy.
+Optional extras:
+- train: duckdb, scikit-learn, pyarrow  (data prep + model training)
+- viz:   matplotlib                      (plotting)
+- download: requests, appdirs            (fetch published models)
 """
 
-__version__ = "1.3.1"
 __package_name__ = "estiMINT"
 
 # Public API exports
@@ -53,9 +50,14 @@ from .storage import (
     bundle_model,
 )
 
-from .run import run_xgb_model
+from .run import run_xgb_model, set_global_model, get_global_model
 
 from .hbr import estimate_eir_with_mosquito_delta
+
+from .bednet import calculate_dn0, net_types, DN0Result
+
+from .scenarios import run_scenarios
+from .types import Scenario, EirTarget
 
 __all__ = [
     # utils
@@ -88,6 +90,16 @@ __all__ = [
     "bundle_model",
     # run
     "run_xgb_model",
+    "set_global_model",
+    "get_global_model",
     # hbr
     "estimate_eir_with_mosquito_delta",
+    # bednet
+    "calculate_dn0",
+    "net_types",
+    "DN0Result",
+    # scenarios
+    "run_scenarios",
+    "Scenario",
+    "EirTarget",
 ]

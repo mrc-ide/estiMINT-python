@@ -11,9 +11,8 @@ Pipeline:
 5. EIR_new = EIR_baseline * (EIR_scaled / EIR_roundtrip)
 """
 
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 
-import numpy as np
 import pandas as pd
 
 from .run import run_xgb_model

@@ -1,14 +1,9 @@
-"""
-Train estiMINT EIR-to-HBR model.
+"""Train the EIR->HBR model (eir + interventions -> hbr_y9).
 
-This script:
-1. Loads the prepared data (eir + interventions -> hbr_y9)
-2. Trains XGBoost model using K-fold CV and QMAP calibration
-3. Saves model to output/eir_to_hbr_retrained/
-
-This is the "reverse" model: given a baseline EIR and interventions,
-predict what the human biting rate is. Used to derive baseline HBR
-so users can apply percentage changes (e.g. "10% more mosquitoes").
+The reverse model: given baseline EIR and interventions, predict the human biting
+rate so percentage mosquito-density changes can be applied. XGBoost with k-means
+strata on log10(HBR), 10-fold CV, QMAP+scale calibration (no monotone constraint).
+Reads models/hbr/eir_to_hbr_training.parquet; writes artifacts into this folder.
 """
 
 import sys
@@ -19,59 +14,36 @@ import xgboost as xgb
 from pathlib import Path
 from sklearn.cluster import KMeans
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 
 from estimint.utils import (
-    ts, r2, rmse, mse, mae, median_ae, mae_rel, rmsle,
-    safe_div, smape, fit_qmap_w, predict_qmap_w, scale_pos
+    ts, r2, rmse, mae, fit_qmap_w, predict_qmap_w, scale_pos
 )
 from estimint.data_processing import make_value_weights
 from estimint.plotting import plot_obs_pred
 
-# Configuration
-DATA_PATH = "/home/cosmo/Documents/Repos/estimint/output/eir_to_hbr_data/eir_to_hbr_training_data.csv"
-OUTPUT_DIR = "/home/cosmo/Documents/Repos/estimint/output/eir_to_hbr_retrained"
+HERE = Path(__file__).parent
+DATA_PATH = HERE / "eir_to_hbr_training.parquet"
+OUTPUT_DIR = HERE
 K_FOLDS = 10
 K_STRATA = 16
 SEED = 42
 
+
 def main():
-    print("=" * 80)
-    print("Training estiMINT EIR-to-HBR Model (eir + interventions -> hbr_y9)")
-    print("=" * 80)
-
-    data_path = Path(DATA_PATH)
-    if not data_path.exists():
-        print(f"ERROR: Training data not found at {DATA_PATH}")
-        print("Please run prepare_eir_to_hbr_data.py first")
-        return 1
-
-    print(f"\nInput data: {data_path}")
-    print(f"Output dir: {OUTPUT_DIR}")
-
-    # Create output directories
-    out_dir = Path(OUTPUT_DIR)
-    dir_models = out_dir / "models"
-    dir_plots = out_dir / "plots"
-    dir_metric = out_dir / "metrics"
-    dir_pred = out_dir / "predictions"
-
-    for d in [dir_models, dir_plots, dir_metric, dir_pred]:
+    dir_plots = OUTPUT_DIR / "plots"
+    dir_metric = OUTPUT_DIR / "metrics"
+    for d in [dir_plots, dir_metric]:
         d.mkdir(parents=True, exist_ok=True)
 
-    # Load data
     ts("Loading training data...")
-    DT = pd.read_csv(data_path)
-    print(f"Loaded {len(DT):,} rows")
+    df = pd.read_parquet(DATA_PATH)
+    print(f"Loaded {len(df):,} rows")
 
-    # Features: eir + interventions. Target: hbr_y9
     features = ["eir", "dn0_use", "Q0", "phi_bednets", "seasonal", "itn_use", "irs_use"]
 
-    # Transform HBR to log10 (large range, same reason as EIR)
-    DT["hbr_log10"] = np.log10(DT["hbr_y9"])
+    df["hbr_log10"] = np.log10(df["hbr_y9"])
 
-    # XGBoost parameters
     xgb_params = {
         "objective": "reg:squarederror",
         "eval_metric": "rmse",
@@ -85,23 +57,21 @@ def main():
         "seed": SEED,
     }
 
-    # Create strata using k-means on log10(HBR)
     ts("Creating %d strata on log10(HBR) and 70/15/15 split...", K_STRATA)
     np.random.seed(SEED)
 
-    hbr_log10 = DT["hbr_log10"].values.reshape(-1, 1)
+    hbr_log10 = df["hbr_log10"].values.reshape(-1, 1)
     km = KMeans(n_clusters=K_STRATA, n_init=50, max_iter=5000, random_state=SEED)
     km.fit(hbr_log10)
 
     centers = km.cluster_centers_.flatten()
     ord_idx = np.argsort(centers)
     id_map = {old_id: new_id + 1 for new_id, old_id in enumerate(ord_idx)}
-    DT["strat_bin"] = np.array([id_map[c] for c in km.labels_])
+    df["strat_bin"] = np.array([id_map[c] for c in km.labels_])
 
-    # Stratified split
-    DT["split"] = None
-    for b in sorted(DT["strat_bin"].unique()):
-        idx = DT[DT["strat_bin"] == b].index.tolist()
+    df["split"] = None
+    for b in sorted(df["strat_bin"].unique()):
+        idx = df[df["strat_bin"] == b].index.tolist()
         n_b = len(idx)
         n_tr = int(np.floor(0.70 * n_b))
         n_val = int(np.floor(0.15 * n_b))
@@ -112,51 +82,48 @@ def main():
         val_idx = idx[n_tr:n_tr + n_val] if n_val > 0 else []
         te_idx = idx[n_tr + n_val:]
 
-        DT.loc[tr_idx, "split"] = "train"
-        DT.loc[val_idx, "split"] = "val"
-        DT.loc[te_idx, "split"] = "test"
+        df.loc[tr_idx, "split"] = "train"
+        df.loc[val_idx, "split"] = "val"
+        df.loc[te_idx, "split"] = "test"
 
-    DT["split"] = DT["split"].fillna("train")
+    df["split"] = df["split"].fillna("train")
 
-    # Hold-out test set
-    DT_test = DT[DT["split"] == "test"]
-    X_test = DT_test[features].values.astype(np.float64)
-    y_test = DT_test["hbr_log10"].values
+    df_test = df[df["split"] == "test"]
+    X_test = df_test[features].values.astype(np.float64)
+    y_test = df_test["hbr_log10"].values
     obs_hbr_test = np.power(10, y_test)
 
-    ts("Test set: %d rows", len(DT_test))
+    ts("Test set: %d rows", len(df_test))
 
-    # CV folds
     ts("Assigning %d-fold CV within TRAIN+VAL strata...", K_FOLDS)
-    DTcv = DT[DT["split"] != "test"].copy()
+    dfcv = df[df["split"] != "test"].copy()
 
     np.random.seed(SEED + 1)
 
-    DTcv["fold"] = 0
-    for b in DTcv["strat_bin"].unique():
-        mask = DTcv["strat_bin"] == b
+    dfcv["fold"] = 0
+    for b in dfcv["strat_bin"].unique():
+        mask = dfcv["strat_bin"] == b
         n_b = mask.sum()
-        idx = DTcv.index[mask].tolist()
+        idx = dfcv.index[mask].tolist()
         np.random.shuffle(idx)
         folds = np.tile(np.arange(1, K_FOLDS + 1), int(np.ceil(n_b / K_FOLDS)))[:n_b]
         np.random.shuffle(folds)
-        DTcv.loc[idx, "fold"] = folds
+        dfcv.loc[idx, "fold"] = folds
 
-    # K-fold CV training
     ts("Running %d-fold CV with early stopping...", K_FOLDS)
-    oof_pred_raw = np.full(len(DTcv), np.nan)
+    oof_pred_raw = np.full(len(dfcv), np.nan)
     best_iters = np.zeros(K_FOLDS, dtype=int)
 
     for k in range(1, K_FOLDS + 1):
         ts(" Fold %d / %d", k, K_FOLDS)
 
-        idx_val = DTcv["fold"] == k
-        idx_tr = DTcv["fold"] != k
+        idx_val = dfcv["fold"] == k
+        idx_tr = dfcv["fold"] != k
 
-        X_tr = DTcv.loc[idx_tr, features].values.astype(np.float64)
-        y_tr = DTcv.loc[idx_tr, "hbr_log10"].values
-        X_va = DTcv.loc[idx_val, features].values.astype(np.float64)
-        y_va = DTcv.loc[idx_val, "hbr_log10"].values
+        X_tr = dfcv.loc[idx_tr, features].values.astype(np.float64)
+        y_tr = dfcv.loc[idx_tr, "hbr_log10"].values
+        X_va = dfcv.loc[idx_val, features].values.astype(np.float64)
+        y_va = dfcv.loc[idx_val, "hbr_log10"].values
 
         w_tr = make_value_weights(np.power(10, y_tr), digits=3)
         w_va = make_value_weights(np.power(10, y_va), digits=3)
@@ -177,16 +144,14 @@ def main():
         pred_log10_va = mdl.predict(dva)
         oof_pred_raw[idx_val.values] = np.power(10, pred_log10_va)
 
-    obs_cv_raw = np.power(10, DTcv["hbr_log10"].values)
+    obs_cv_raw = np.power(10, dfcv["hbr_log10"].values)
 
-    # Fit calibrator
     ts("Fitting final calibrator (QMAP + positive scale) on OOF...")
     cal_oof = fit_qmap_w(oof_pred_raw, obs_cv_raw, ngrid=1024, round_digits=8)
     oof_pred_cal = predict_qmap_w(oof_pred_raw, cal_oof)
     a_oof = scale_pos(obs_cv_raw, oof_pred_cal)
     oof_pred_final = np.maximum(0, a_oof * oof_pred_cal)
 
-    # OOF metrics
     oof_metrics = pd.DataFrame({
         "set": ["OOF_uncalibrated", "OOF_calibrated"],
         "R2": [r2(obs_cv_raw, oof_pred_raw), r2(obs_cv_raw, oof_pred_final)],
@@ -197,14 +162,13 @@ def main():
     oof_metrics.to_csv(dir_metric / f"hbr_OOF_metrics_K{K_FOLDS}CV.csv", index=False)
     print("\n" + str(oof_metrics))
 
-    # Train final model
     ts("Training final model on TRAIN+VAL with nrounds = median(best_iteration)...")
     best_nrounds = int(np.round(np.median(best_iters)))
     print(f"Best nrounds: {best_nrounds}")
 
-    DT_trcv = DT[DT["split"] != "test"]
-    X_trcv = DT_trcv[features].values.astype(np.float64)
-    y_trcv = DT_trcv["hbr_log10"].values
+    df_trcv = df[df["split"] != "test"]
+    X_trcv = df_trcv[features].values.astype(np.float64)
+    y_trcv = df_trcv["hbr_log10"].values
     w_trcv = make_value_weights(np.power(10, y_trcv), digits=3)
 
     dtrcv = xgb.DMatrix(X_trcv, label=y_trcv, weight=w_trcv)
@@ -215,16 +179,14 @@ def main():
         num_boost_round=best_nrounds,
         verbose_eval=False,
     )
-    xgb_final.save_model(str(dir_models / "hbr_xgb_FINAL.model"))
+    xgb_final.save_model(str(OUTPUT_DIR / "hbr_xgb_FINAL.model"))
 
-    # Predict on TEST
     dtest = xgb.DMatrix(X_test, label=y_test)
     pred_log10_test_raw = xgb_final.predict(dtest)
     pred_raw_test = np.power(10, pred_log10_test_raw)
     pred_hbr_test = predict_qmap_w(pred_raw_test, cal_oof)
     pred_hbr_test = np.maximum(0, a_oof * pred_hbr_test)
 
-    # Test metrics
     test_metrics = pd.DataFrame({
         "set": ["Test"],
         "R2": [r2(obs_hbr_test, pred_hbr_test)],
@@ -235,7 +197,6 @@ def main():
     test_metrics.to_csv(dir_metric / "hbr_test_metrics.csv", index=False)
     print("\n" + str(test_metrics))
 
-    # Plot
     plot_obs_pred(
         obs_hbr_test, pred_hbr_test,
         f"HBR — Observed vs Predicted (XGBoost, K={K_FOLDS} CV, QMAP+Scale, test)",
@@ -243,7 +204,6 @@ def main():
         xlab="Observed HBR", ylab="Predicted HBR"
     )
 
-    # Model bundle
     cal_bundle = {
         "kind": "qmap+scale",
         "qmap": {"xq": cal_oof["xq"], "yq": cal_oof["yq"]},
@@ -256,9 +216,9 @@ def main():
         "transform": "log10",
         "inverse": "pow10",
         "training_data": {
-            "source": "MINTelligence malaria_simulations_4096.duckdb + HBR_malaria_simulations_4096.duckdb",
-            "n_rows": len(DT),
-            "n_params": DT["parameter_index"].nunique()
+            "source": "datasets/estimint_simulations_y9.parquet (prev_y9 >= 0.01 AND hbr_y9 > 0)",
+            "n_rows": len(df),
+            "n_params": df["parameter_index"].nunique()
         },
         "cv": {
             "K": K_FOLDS,
@@ -276,17 +236,12 @@ def main():
         "preprocess": preprocess,
     }
 
-    with open(dir_models / "estiMINT_EIR_to_HBR_model.pkl", "wb") as f:
+    with open(OUTPUT_DIR / "estiMINT_EIR_to_HBR_model.pkl", "wb") as f:
         pickle.dump(model_bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    print("\n" + "=" * 80)
-    print("Training Complete!")
-    print("=" * 80)
-    print(f"\nModel saved to: {dir_models}/estiMINT_EIR_to_HBR_model.pkl")
-    print(f"Plots saved to: {dir_plots}/")
-    print(f"Metrics saved to: {dir_metric}/")
-
+    print(f"\nModel saved to: {OUTPUT_DIR}/estiMINT_EIR_to_HBR_model.pkl")
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

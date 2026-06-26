@@ -1,4 +1,3 @@
 include README.md
-include requirements.txt
 recursive-include src/estimint/data *
-recursive-include src/estimint/inst *
+prune tests
