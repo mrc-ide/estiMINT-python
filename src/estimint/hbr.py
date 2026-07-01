@@ -18,7 +18,7 @@ import pandas as pd
 from .run import run_xgb_model
 
 
-def estimate_eir_with_mosquito_delta_batch(inputs: pd.DataFrame, *, models: dict[str, Any]) -> pd.DataFrame:
+def estimate_eir_with_mosquito_delta(inputs: pd.DataFrame, *, models: dict[str, Any]) -> pd.DataFrame:
     """
     Estimate new EIR after a change in mosquito density for multiple scenarios.
 
@@ -59,13 +59,13 @@ def estimate_eir_with_mosquito_delta_batch(inputs: pd.DataFrame, *, models: dict
     Examples
     --------
     >>> import pandas as pd
-    >>> from estimint import estimate_eir_with_mosquito_delta_batch
+    >>> from estimint import estimate_eir_with_mosquito_delta
     >>> inputs = pd.DataFrame([
     ...     {"prevalence": 0.30, "mosquito_delta": 0.25,
     ...      "dn0_use": 0.33, "Q0": 0.87, "phi_bednets": 0.82,
     ...      "seasonal": 0.0, "itn_use": 0.6, "irs_use": 0.0},
     ... ])
-    >>> result = estimate_eir_with_mosquito_delta_batch(inputs, models=models)
+    >>> result = estimate_eir_with_mosquito_delta(inputs, models=models)
     >>> print(result[["eir_baseline", "eir_new"]])
     """
     features = [
