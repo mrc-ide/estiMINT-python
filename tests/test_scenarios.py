@@ -14,7 +14,7 @@ from estimint.scenarios import (
     _PreparedScenario,
     _apply_mosquito_delta_batch,
     _classify_prepared_scenario,
-    _estimate_eir_many,
+    _estimate_eir,
     _load_eir_hbr_models,
     _prepare_scenario_inputs,
     run_scenarios,
@@ -32,9 +32,9 @@ def mk(**kwargs: Any) -> Scenario:
     return Scenario(eir_target=EirTarget(input_value, input_mode), **defaults)
 
 
-def _estimate_eir(scenario: Scenario, eir_models: dict[str, Any]) -> _PreparedScenario:
+def _estimate_eir_single(scenario: Scenario, eir_models: dict[str, Any]) -> _PreparedScenario:
     """Estimate EIR for a single scenario via the batch estimator."""
-    return _estimate_eir_many([scenario], eir_models)[0]
+    return _estimate_eir([scenario], eir_models)[0]
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +44,7 @@ def est():
 
 class TestEstimateEir:
     def test_prevalence_input(self, est):
-        out = _estimate_eir(mk(input="prevalence", value=0.30), est)
+        out = _estimate_eir_single(mk(input="prevalence", value=0.30), est)
         assert out.summary_values["eir_baseline"] > 0
         assert out.emulator_covariates["eir"] == out.summary_values["eir_final"]
         # no nets, no delta
@@ -52,18 +52,18 @@ class TestEstimateEir:
         assert np.isnan(out.summary_values["hbr_baseline"])
 
     def test_eir_input_passes_through(self, est):
-        out = _estimate_eir(mk(input="eir", value=20.0), est)
+        out = _estimate_eir_single(mk(input="eir", value=20.0), est)
         assert out.summary_values["eir_baseline"] == 20.0
         assert out.summary_values["eir_final"] == 20.0
 
     def test_hbr_input(self, est):
-        out = _estimate_eir(mk(input="hbr", value=250000.0), est)
+        out = _estimate_eir_single(mk(input="hbr", value=250000.0), est)
         assert out.summary_values["eir_baseline"] > 0
 
     def test_bednet_mix_matches_minte(self, est):
         # net-type usage mix feeds calculate_dn0 directly, same as minte; itn_use
         # is the sum of pyrethroid shares (NOT rescaled by coverage again).
-        out = _estimate_eir(mk(input="prevalence", value=0.30, py_only=0.70, py_pbo=0.30, res_use=0.30), est)
+        out = _estimate_eir_single(mk(input="prevalence", value=0.30, py_only=0.70, py_pbo=0.30, res_use=0.30), est)
         assert out.summary_values["dn0_use"] > 0
         assert out.summary_values["itn_use"] == pytest.approx(1.00)
         assert out.summary_values["net"] == "py_only+py_pbo"
@@ -71,7 +71,7 @@ class TestEstimateEir:
     def test_future_net_switch_is_separate_leg(self, est):
         # net_type_future/itn_future drive the future leg, not current nets;
         # the future leg shares the same res_use as current (no res_future field).
-        scenario_estimate = _estimate_eir(
+        scenario_estimate = _estimate_eir_single(
             mk(
                 input="prevalence",
                 value=0.30,
@@ -91,7 +91,7 @@ class TestEstimateEir:
     def test_future_without_net_type_is_zeroed(self, est):
         # no net_type_future named -> future leg is zeroed, even if itn_future is set
         # (no carry-forward of the current mix; this is intentional, not a default)
-        summary_values = _estimate_eir(
+        summary_values = _estimate_eir_single(
             mk(input="prevalence", value=0.30, py_pbo=0.80, res_use=0.30, itn_future=0.70), est
         ).summary_values
         assert summary_values["dn0_future"] == 0.0 and summary_values["itn_future"] == 0.0
@@ -99,7 +99,7 @@ class TestEstimateEir:
 
     def test_future_nets_removed(self, est):
         # itn_future == 0 removes nets in the future leg
-        summary_values = _estimate_eir(
+        summary_values = _estimate_eir_single(
             mk(input="prevalence", value=0.30, py_only=0.60, res_use=0.30, itn_future=0.0), est
         ).summary_values
         assert summary_values["itn_use"] == pytest.approx(0.60)
@@ -107,12 +107,12 @@ class TestEstimateEir:
 
     def test_ppf_boosts_lsm(self, est):
         # PPF nets add larviciding to LSM (minte: py_ppf * 0.248)
-        out = _estimate_eir(mk(input="eir", value=15.0, py_ppf=0.50, res_use=0.30, lsm=0.10), est)
+        out = _estimate_eir_single(mk(input="eir", value=15.0, py_ppf=0.50, res_use=0.30, lsm=0.10), est)
         assert out.emulator_covariates["lsm"] == pytest.approx(0.50 * 0.248 + 0.10)
 
     def test_irs_future_and_routine_are_inputs(self, est):
         # irs_future and routine are separate scenario inputs, like minte
-        emulator_covariates = _estimate_eir(
+        emulator_covariates = _estimate_eir_single(
             mk(input="eir", value=15.0, irs=0.40, irs_future=0.10, routine=0.25), est
         ).emulator_covariates
         assert emulator_covariates["irs_use"] == 0.40 and emulator_covariates["irs_future"] == 0.10
@@ -121,22 +121,20 @@ class TestEstimateEir:
     def test_irs_future_and_routine_defaults(self, est):
         # irs_future is a static dataclass default (0.0); it does NOT carry irs
         # forward automatically, even when irs is nonzero.
-        emulator_covariates = _estimate_eir(
-            mk(input="eir", value=15.0, irs=0.40), est
-        ).emulator_covariates
+        emulator_covariates = _estimate_eir_single(mk(input="eir", value=15.0, irs=0.40), est).emulator_covariates
         assert emulator_covariates["irs_future"] == 0.0
         assert emulator_covariates["irs_use"] == 0.40
         assert emulator_covariates["routine"] == 0.0
 
     def test_mosquito_delta_direction(self, est):
-        up = _estimate_eir(mk(input="prevalence", value=0.30, mosquito_delta=0.25), est)
-        down = _estimate_eir(mk(input="prevalence", value=0.30, mosquito_delta=-0.50), est)
+        up = _estimate_eir_single(mk(input="prevalence", value=0.30, mosquito_delta=0.25), est)
+        down = _estimate_eir_single(mk(input="prevalence", value=0.30, mosquito_delta=-0.50), est)
         assert up.summary_values["eir_final"] > up.summary_values["eir_baseline"]
         assert down.summary_values["eir_final"] < down.summary_values["eir_baseline"]
         assert up.summary_values["hbr_new"] > up.summary_values["hbr_baseline"]
 
     def test_covariate_dict_keys(self, est):
-        out = _estimate_eir(mk(input="eir", value=15.0, lsm=0.3), est)
+        out = _estimate_eir_single(mk(input="eir", value=15.0, lsm=0.3), est)
         assert set(out.emulator_covariates) == {
             "eir",
             "dn0_use",
@@ -156,7 +154,7 @@ class TestEstimateEir:
 
     def test_bad_input_raises(self, est):
         with pytest.raises(ValueError, match="input_mode"):
-            _estimate_eir(mk(input="nope", value=1.0), est)
+            _estimate_eir_single(mk(input="nope", value=1.0), est)
 
     def test_batch_mixed_input_modes(self, est):
         # one batched call must estimate every input mode and preserve order
@@ -166,7 +164,7 @@ class TestEstimateEir:
             mk(name="hbr", input="hbr", value=250000.0),
             mk(name="prev_delta", input="prevalence", value=0.30, mosquito_delta=0.25),
         ]
-        outs = _estimate_eir_many(scenarios, est)
+        outs = _estimate_eir(scenarios, est)
         assert [out.summary_values["name"] for out in outs] == ["prev", "eir", "hbr", "prev_delta"]
         assert all(out.summary_values["eir_baseline"] > 0 for out in outs)
         assert outs[1].summary_values["eir_final"] == 20.0  # explicit eir passes through
@@ -199,7 +197,10 @@ class TestClassifyPreparedScenario:
         assert _classify_prepared_scenario(self._make_prepared("prevalence")) == "prevalence"
 
     def test_prevalence_with_delta(self):
-        assert _classify_prepared_scenario(self._make_prepared("prevalence", mosquito_density_change=0.25)) == "mosquito_delta"
+        assert (
+            _classify_prepared_scenario(self._make_prepared("prevalence", mosquito_density_change=0.25))
+            == "mosquito_delta"
+        )
 
     def test_hbr_mode(self):
         assert _classify_prepared_scenario(self._make_prepared("hbr")) == "hbr"

@@ -239,7 +239,7 @@ def _apply_mosquito_delta_batch(prepared_scenarios: list[_PreparedScenario], eir
         )
 
 
-def _estimate_eir_many(scenarios: list[Scenario], eir_models: Dict[str, Any]) -> list[_PreparedScenario]:
+def _estimate_eir(scenarios: list[Scenario], eir_models: Dict[str, Any]) -> list[_PreparedScenario]:
     """Estimate EIR for many scenarios, dispatching each to one of three paths:
     - "eir": supplied directly, passed through unchanged
     - "prevalence" / "hbr": predicted from baseline measurements via XGBoost
@@ -351,7 +351,7 @@ def run_scenarios(
 
     eir_models, emulator_models = preload_models(hf_repo=hf_repo)
 
-    scenario_estimates = _estimate_eir_many(scenarios, eir_models)
+    scenario_estimates = _estimate_eir(scenarios, eir_models)
     emulator_covariates = [estimate.emulator_covariates for estimate in scenario_estimates]
     prevalence_timeseries = emulator_models["prevalence"].predict(emulator_covariates)
     case_timeseries = np.maximum(emulator_models["cases"].predict(emulator_covariates), 0.0)
